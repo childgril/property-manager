@@ -48,7 +48,7 @@ python3 -m http.server 8000
 ## 🗂️ 檔案結構
 
 ```
-deed-manager/
+property-manager/
 ├── index.html    # 主頁面與樣式
 ├── app.js        # 資料庫、總覽、列表
 ├── forms.js      # 新增/編輯表單、明細頁、範例資料
