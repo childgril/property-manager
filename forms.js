@@ -206,7 +206,7 @@ function openDeedDetail(type, id) {
     evHtml = '<div class="timeline">';
     events.forEach(e => {
       const amt = e.amount ? ` · ${fmt(e.amount)}` : '';
-      evHtml += `<div class="tl-item"><div class="date">${esc(e.event_date)}</div><div class="ev">${esc(e.description)}${amt} <span class="badge" style="background:var(--surface-2);color:var(--text-dim);font-size:10px">${enumLabel('event_kind',e.event_kind)}</span></div></div>`;
+      evHtml += `<div class="tl-item"><div class="date">${esc(e.event_date)}</div><div class="ev">${esc(e.description)}${amt} <span class="badge" style="background:var(--surface-2);color:var(--text-dim);font-size:13px">${enumLabel('event_kind',e.event_kind)}</span></div></div>`;
     });
     evHtml += '</div>';
   }
