@@ -222,44 +222,72 @@ function query(sql, params=[]) {
   stmt.free();
   return rows;
 }
-function run(sql, params=[]) { db.run(sql, params); markDirty(); }
+function run(sql, params=[]) {
+  try {
+    db.run(sql, params);
+  } catch (e) {
+    // 保險絲：若因缺欄位失敗，自動補欄位後重試一次
+    if (/no such column|has no column/.test(e.message)) {
+      migrate();
+      db.run(sql, params); // 重試，補完欄位應該就成功
+    } else {
+      throw e;
+    }
+  }
+  markDirty();
+}
 
 /* ---------- 初始化 ---------- */
 /* 自動升級資料庫結構：補上舊 .db 缺少的欄位
-   這樣不管載入多舊的資料檔，都會自動補齊，不會再出現 "no column" 錯誤 */
+   做法：直接解析 SCHEMA 裡每張表的欄位定義，跟實際資料庫比對，缺的自動補。
+   不需手動維護清單，永遠不會漏。 */
 function migrate() {
-  // 每張表「應該有」的欄位與型別（只列後來新增的，缺了就補）
-  const expected = {
-    lands: {
-      deed_code:'TEXT', land_grade:'TEXT', zoning:'TEXT', parent_land_id:'INTEGER',
-      announced_value_date:'TEXT', other_rights_notes:'TEXT', disposal_type:'TEXT'
-    },
-    buildings: {
-      deed_code:'TEXT', other_rights_notes:'TEXT', disposal_type:'TEXT'
-    },
-    loans: {
-      collateral_scope:'TEXT', branch:'TEXT', contact_person:'TEXT', base_rate_name:'TEXT',
-      rate_adjustment:'REAL', lien_certificate_no:'TEXT', auto_debit_account:'TEXT',
-      grace_period_end_at:'TEXT', rate_reset_at:'TEXT', lockup_end_at:'TEXT',
-      close_reason:'TEXT', early_termination_fee:'REAL'
-    }
-  };
-  for (const table in expected) {
-    // 先確認表存在
-    let cols;
+  // 從 SCHEMA 字串解析出每張表應有的欄位與型別
+  const tableDefs = {};
+  const re = /CREATE TABLE IF NOT EXISTS (\w+)\s*\(([\s\S]*?)\);/g;
+  let mt;
+  while ((mt = re.exec(SCHEMA)) !== null) {
+    const tableName = mt[1];
+    const body = mt[2];
+    const cols = {};
+    body.split(',').forEach(line => {
+      line = line.trim();
+      // 比對「欄位名 型別…」，跳過 PRIMARY KEY 那行等
+      const cm = line.match(/^(\w+)\s+(TEXT|INTEGER|REAL|NUMERIC|BLOB)/i);
+      if (cm && cm[1].toUpperCase() !== 'PRIMARY') {
+        cols[cm[1]] = cm[2];
+      }
+    });
+    tableDefs[tableName] = cols;
+  }
+
+  // 逐表比對，補上缺少的欄位
+  for (const table in tableDefs) {
+    let existing;
     try {
-      cols = query(`PRAGMA table_info(${table})`).map(c => c.name);
-    } catch(e) { continue; } // 表不存在就跳過（SCHEMA 會建）
-    if (!cols.length) continue;
-    for (const col in expected[table]) {
-      if (!cols.includes(col)) {
+      existing = query(`PRAGMA table_info(${table})`).map(c => c.name);
+    } catch(e) { continue; }
+    if (!existing.length) continue; // 表不存在，SCHEMA 會建
+    for (const col in tableDefs[table]) {
+      if (!existing.includes(col)) {
         try {
-          db.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${expected[table][col]}`);
-          console.log(`已補欄位 ${table}.${col}`);
-        } catch(e) { /* 已存在或其他，忽略 */ }
+          db.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${tableDefs[table][col]}`);
+          console.log(`已自動補欄位 ${table}.${col}`);
+        } catch(e) { /* 忽略 */ }
       }
     }
   }
+}
+
+/* 重設：清空瀏覽器暫存與目前資料，重建乾淨的資料庫（修復壞掉的暫存用） */
+function resetDatabase() {
+  if (!confirm('⚠ 這會清空目前畫面上的資料並重建乾淨的資料庫。\n\n如果你有重要資料，請先按「💾 儲存到檔案」備份！\n\n確定要清空重來嗎？')) return;
+  try { localStorage.removeItem('deedDbAutoSave'); } catch(e) {}
+  db = new SQL.Database();
+  db.run(SCHEMA);
+  markClean();
+  toast('已清空並重建乾淨的資料庫');
+  showPage('dashboard');
 }
 
 async function boot() {
@@ -305,6 +333,7 @@ function bindUI() {
   $('#btnLoad').addEventListener('click', () => $('#fileInput').click());
   $('#fileInput').addEventListener('change', loadFromFile);
   $('#btnSeed').addEventListener('click', seedData);
+  $('#btnReset').addEventListener('click', resetDatabase);
   $('#modalBg').addEventListener('click', e => { if (e.target === $('#modalBg')) closeModal(); });
 
   window.addEventListener('beforeunload', e => {
