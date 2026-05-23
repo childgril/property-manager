@@ -10,7 +10,7 @@ function updatePing(input, hintId) {
   const v = parseFloat(input.value);
   const el = document.getElementById(hintId);
   if (!el) return;
-  el.textContent = (v && v > 0) ? `≈ ${(v * 0.3025).toFixed(2)} 坪` : '輸入後自動換算坪數';
+  el.textContent = (v && v > 0) ? `≈ ${(v * 0.3025).toFixed(2)} 坪` : '';
 }
 
 function selectOptions(group, current) {
@@ -53,8 +53,10 @@ function openLandForm(id) {
       <div class="section-label">面積與持分</div>
       <div class="field">
         <label>地號總面積㎡</label>
-        <input name="total_area_sqm" type="number" value="${esc(r.total_area_sqm)}" oninput="updatePing(this,'ping_total')">
-        <div class="hint" id="ping_total" style="color:var(--accent);font-weight:600">${r.total_area_sqm?'≈ '+sqm2ping(r.total_area_sqm)+' 坪':'輸入後自動換算坪數'}</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input name="total_area_sqm" type="number" value="${esc(r.total_area_sqm)}" oninput="updatePing(this,'ping_total')" style="flex:1">
+          <span id="ping_total" style="color:var(--accent);font-weight:600;white-space:nowrap;min-width:80px">${r.total_area_sqm?'≈ '+sqm2ping(r.total_area_sqm)+' 坪':''}</span>
+        </div>
       </div>
       <div class="field"></div>
       ${fieldText('share_numerator','持分分子',r.share_numerator,{type:'number',ph:'完整持有填同分母'})}
@@ -130,8 +132,10 @@ function openBuildingForm(id) {
       ${fieldText('common_area_sqm','共有部分㎡',r.common_area_sqm,{type:'number',hint:'公設'})}
       <div class="field">
         <label>權狀總登記㎡</label>
-        <input name="total_registered_area_sqm" type="number" value="${esc(r.total_registered_area_sqm)}" oninput="updatePing(this,'ping_bld_total')">
-        <div class="hint" id="ping_bld_total" style="color:var(--accent);font-weight:600">${r.total_registered_area_sqm?'≈ '+sqm2ping(r.total_registered_area_sqm)+' 坪':'輸入後自動換算坪數'}</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input name="total_registered_area_sqm" type="number" value="${esc(r.total_registered_area_sqm)}" oninput="updatePing(this,'ping_bld_total')" style="flex:1">
+          <span id="ping_bld_total" style="color:var(--accent);font-weight:600;white-space:nowrap;min-width:80px">${r.total_registered_area_sqm?'≈ '+sqm2ping(r.total_registered_area_sqm)+' 坪':''}</span>
+        </div>
       </div>
       ${fieldText('share_numerator','共有持分分子',r.share_numerator,{type:'number'})}
       ${fieldText('share_denominator','共有持分分母',r.share_denominator,{type:'number'})}
@@ -194,17 +198,19 @@ function openDeedDetail(type, id) {
   let cells = '';
   const add = (k,v) => cells += `<div class="cell"><div class="k">${k}</div><div class="v">${v}</div></div>`;
   if (type === 'land') {
+    add('權狀正本位置', esc(r.deed_physical_location)||'—');
     add('地號', `<span class="mono">${esc(r.land_number)}</span>`);
-    add('權狀字號', `<span class="mono">${esc(r.title_deed_number)||'—'}</span>`);
     add('地段', esc(r.section_name)||'—');
     add('地目', enumLabel('land_category',r.land_category) + (r.land_grade?` · ${esc(r.land_grade)}等則`:''));
-    add('總面積', `<span class="mono">${fmt(r.total_area_sqm)} ㎡（${sqm2ping(r.total_area_sqm)} 坪）</span>`);
-    add('持分', (r.share_numerator&&r.share_denominator)?`<span class="mono">${r.share_numerator}/${r.share_denominator}</span>`:'—');
-    add('公告現值/㎡', `<span class="mono">${fmt(r.announced_value_per_sqm)}</span>`);
+    add('面積', `<span class="mono">${fmt(r.total_area_sqm)} ㎡</span>`);
+    add('坪數', `<span class="mono">${sqm2ping(r.total_area_sqm)} 坪</span>`);
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
+    add('持分', (r.share_numerator&&r.share_denominator)?`<span class="mono">${r.share_numerator}/${r.share_denominator}</span>`:'—');
     add('取得日', rocDate(r.acquired_at));
-    add('權狀正本位置', esc(r.deed_physical_location)||'—');
-    add('抵押權', r.has_mortgage?'已設定':'無');
+    add('狀態', `<span class="badge ${r.lifecycle_status}">${enumLabel('land_status',r.lifecycle_status)}</span>`);
+    add('是否設定抵押', r.has_mortgage?'已設定':'無');
+    add('權狀字號', `<span class="mono">${esc(r.title_deed_number)||'—'}</span>`);
+    add('公告現值/㎡', `<span class="mono">${fmt(r.announced_value_per_sqm)}</span>`);
   } else {
     add('建號', `<span class="mono">${esc(r.building_number)}</span>`);
     add('權狀字號', `<span class="mono">${esc(r.title_deed_number)||'—'}</span>`);
