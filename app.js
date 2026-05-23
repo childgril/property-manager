@@ -137,11 +137,11 @@ CREATE TABLE IF NOT EXISTS loan_payments (
 const ENUMS = {
   land_category: [['建','建（建築用地）'],['田','田（水田）'],['旱','旱（旱田）'],['林','林（林地）'],['養','養（養殖用地）'],['牧','牧（畜牧用地）'],['礦','礦（礦業用地）'],['鹽','鹽（鹽田）'],['池','池（池塘）'],['線','線（鐵路用地）'],['道','道（道路）'],['水','水（水利用地）'],['溜','溜（蓄水池）'],['溝','溝（溝渠）'],['堤','堤（堤防）'],['原','原（生產原野）'],['雜','雜（雜地）'],['公','公（公共用地）'],['墓','墓（墳墓）'],['祠','祠（祠廟）'],['鐵','鐵（鐵道用地）'],['其他','其他']],
   land_acq: [['purchase','買賣'],['inheritance','繼承'],['gift','贈與'],['split','分割產生'],['merge','合併產生']],
-  land_disposal: [['sale','出售'],['split','分割消滅'],['merge','合併消滅'],['expropriation','徵收']],
+  land_disposal: [['sale','出售'],['gift','贈與'],['split','分割消滅'],['merge','合併消滅'],['expropriation','徵收']],
   land_status: [['held','持有中'],['sold','已售出'],['split','已分割'],['merged','已合併']],
   building_type: [['apartment','公寓'],['elevator_building','電梯大樓'],['townhouse','透天厝'],['suite','套房'],['store','店面'],['office','辦公'],['factory','廠房'],['other','其他']],
   building_acq: [['purchase','買賣'],['self_build','自地自建'],['inheritance','繼承'],['gift','贈與']],
-  building_disposal: [['sale','出售'],['demolition','拆除滅失'],['expropriation','徵收']],
+  building_disposal: [['sale','出售'],['gift','贈與'],['demolition','拆除滅失'],['expropriation','徵收']],
   building_status: [['held','持有中'],['sold','已售出'],['demolished','已滅失']],
   event_kind: [['acquire','取得'],['mortgage','設定抵押'],['release','塗銷抵押'],['improvement','改良'],['holding','持有費用'],['valuation','估價'],['split','分割'],['merge','合併'],['disposal','處分'],['other','其他']],
   property_type: [['land','純土地'],['building','純建物'],['land_and_building','土地+建物'],['parking','車位']],
@@ -174,6 +174,21 @@ const $ = sel => document.querySelector(sel);
 const now = () => new Date().toISOString().slice(0,10);
 function fmt(n) { return n == null || n === '' ? '—' : Number(n).toLocaleString('zh-TW'); }
 function sqm2ping(s) { return s ? (s * 0.3025).toFixed(2) : '—'; }
+/* 西元日期(YYYY-MM-DD) 轉民國年顯示，如 2019-03-15 → 民國108年03月15日 */
+function rocDate(s) {
+  if (!s) return '—';
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return s;
+  const roc = parseInt(m[1]) - 1911;
+  return `民國${roc}年${m[2]}月${m[3]}日`;
+}
+/* 短版民國年，如 108/03/15（用於表格省空間） */
+function rocShort(s) {
+  if (!s) return '—';
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return s;
+  return `${parseInt(m[1])-1911}/${m[2]}/${m[3]}`;
+}
 function esc(s) { return (s==null?'':String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function markDirty() { dirty = true; $('#dataStatus').textContent = '⚠ 有未儲存變更，記得「儲存到檔案」'; $('#dataStatus').style.color = 'var(--amber)'; }
 function markClean() { dirty = false; $('#dataStatus').textContent = '已儲存 / 無變更'; $('#dataStatus').style.color = 'var(--text-dim)'; }
@@ -366,7 +381,7 @@ function renderLandList() {
         <td>${enumLabel('land_category',r.land_category)}</td>
         <td class="mono right">${fmt(r.total_area_sqm)}</td>
         <td class="mono">${share}</td>
-        <td class="mono">${esc(r.acquired_at)||'—'}</td>
+        <td class="mono">${rocShort(r.acquired_at)}</td>
         <td><span class="badge ${r.lifecycle_status}">${enumLabel('land_status',r.lifecycle_status)}</span></td>
         <td onclick="event.stopPropagation()"><div class="row-actions">
           <button class="icon-btn" onclick="openLandForm(${r.land_id})">編輯</button>
@@ -416,7 +431,7 @@ function renderBuildingList() {
         <td>${enumLabel('building_type',r.building_type)}</td>
         <td class="mono right">${fmt(r.main_area_sqm)}</td>
         <td class="mono right">${fmt(r.total_registered_area_sqm)}</td>
-        <td class="mono">${esc(r.acquired_at)||'—'}</td>
+        <td class="mono">${rocShort(r.acquired_at)}</td>
         <td><span class="badge ${r.lifecycle_status}">${enumLabel('building_status',r.lifecycle_status)}</span></td>
         <td onclick="event.stopPropagation()"><div class="row-actions">
           <button class="icon-btn" onclick="openBuildingForm(${r.building_id})">編輯</button>

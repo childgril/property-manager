@@ -202,6 +202,7 @@ function openDeedDetail(type, id) {
     add('持分', (r.share_numerator&&r.share_denominator)?`<span class="mono">${r.share_numerator}/${r.share_denominator}</span>`:'—');
     add('公告現值/㎡', `<span class="mono">${fmt(r.announced_value_per_sqm)}</span>`);
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
+    add('取得日', rocDate(r.acquired_at));
     add('權狀正本位置', esc(r.deed_physical_location)||'—');
     add('抵押權', r.has_mortgage?'已設定':'無');
   } else {
@@ -210,10 +211,11 @@ function openDeedDetail(type, id) {
     add('門牌', esc(r.door_address)||'—');
     add('型態', enumLabel('building_type',r.building_type) + (r.floor_located?` · ${esc(r.floor_located)}`:''));
     add('構造', esc(r.structure)||'—');
-    add('建築完成', esc(r.completion_date)||'—');
+    add('建築完成', rocDate(r.completion_date));
     add('主建物', `<span class="mono">${fmt(r.main_area_sqm)} ㎡</span>`);
     add('總登記面積', `<span class="mono">${fmt(r.total_registered_area_sqm)} ㎡（${sqm2ping(r.total_registered_area_sqm)} 坪）</span>`);
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
+    add('取得日', rocDate(r.acquired_at));
     add('權狀正本位置', esc(r.deed_physical_location)||'—');
   }
 
@@ -224,7 +226,7 @@ function openDeedDetail(type, id) {
     evHtml = '<div class="timeline">';
     events.forEach(e => {
       const amt = e.amount ? ` · ${fmt(e.amount)}` : '';
-      evHtml += `<div class="tl-item"><div class="date">${esc(e.event_date)}</div><div class="ev">${esc(e.description)}${amt} <span class="badge" style="background:var(--surface-2);color:var(--text-dim);font-size:13px">${enumLabel('event_kind',e.event_kind)}</span></div></div>`;
+      evHtml += `<div class="tl-item"><div class="date">${rocShort(e.event_date)}</div><div class="ev">${esc(e.description)}${amt} <span class="badge" style="background:var(--surface-2);color:var(--text-dim);font-size:13px">${enumLabel('event_kind',e.event_kind)}</span></div></div>`;
     });
     evHtml += '</div>';
   }

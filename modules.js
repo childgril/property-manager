@@ -228,12 +228,12 @@ function openTxnDetail(id) {
   let stageHtml = '<div class="timeline">';
   stages.forEach(([k,lbl]) => {
     const d = t[k];
-    stageHtml += `<div class="tl-item" style="${d?'':'opacity:0.4'}"><div class="date">${d?esc(d):'未完成'}</div><div class="ev">${lbl}</div></div>`;
+    stageHtml += `<div class="tl-item" style="${d?'':'opacity:0.4'}"><div class="date">${d?rocShort(d):'未完成'}</div><div class="ev">${lbl}</div></div>`;
   });
   stageHtml += '</div>';
 
   let flowRows = '';
-  flows.forEach(c => flowRows += `<tr><td class="mono">${esc(c.flow_date)}</td><td>${enumLabel('flow_category',c.category)}</td><td style="color:${c.direction==='in'?'var(--green)':'var(--red)'}">${c.direction==='in'?'收':'付'}</td><td class="mono right" style="color:${c.direction==='in'?'var(--green)':'var(--red)'}">${fmt(c.amount)}</td><td>${esc(c.counterparty)||'—'}</td><td onclick="event.stopPropagation()"><button class="icon-btn del" onclick="deleteFlow(${c.cashflow_id},${id})">刪</button></td></tr>`);
+  flows.forEach(c => flowRows += `<tr><td class="mono">${rocShort(c.flow_date)}</td><td>${enumLabel('flow_category',c.category)}</td><td style="color:${c.direction==='in'?'var(--green)':'var(--red)'}">${c.direction==='in'?'收':'付'}</td><td class="mono right" style="color:${c.direction==='in'?'var(--green)':'var(--red)'}">${fmt(c.amount)}</td><td>${esc(c.counterparty)||'—'}</td><td onclick="event.stopPropagation()"><button class="icon-btn del" onclick="deleteFlow(${c.cashflow_id},${id})">刪</button></td></tr>`);
   if (!flowRows) flowRows = `<tr><td colspan="6" style="color:var(--text-dim)">尚無金流記錄</td></tr>`;
 
   $('#txnDetail').innerHTML = `
@@ -391,10 +391,10 @@ function openLoanDetail(id) {
   add('抵押設定金額', `<span class="mono">${fmt(l.mortgage_amount)}</span>`);
 
   const reminders = [['grace_period_end_at','寬限期到期'],['rate_reset_at','利率重訂'],['lockup_end_at','綁約到期'],['maturity_at','整體到期']].filter(([k])=>l[k]);
-  let remHtml = reminders.length ? '<div class="timeline">' + reminders.map(([k,lbl])=>`<div class="tl-item"><div class="date">${esc(l[k])}</div><div class="ev">${lbl}</div></div>`).join('') + '</div>' : '<div class="page-desc">未設定提醒日期</div>';
+  let remHtml = reminders.length ? '<div class="timeline">' + reminders.map(([k,lbl])=>`<div class="tl-item"><div class="date">${rocDate(l[k])}</div><div class="ev">${lbl}</div></div>`).join('') + '</div>' : '<div class="page-desc">未設定提醒日期</div>';
 
   let payRows = '';
-  pays.forEach(p => payRows += `<tr><td class="mono">${p.period_no||'—'}</td><td class="mono">${esc(p.due_date)}</td><td class="mono right">${fmt(p.principal_amount)}</td><td class="mono right">${fmt(p.interest_amount)}</td><td class="mono right">${fmt(p.total_amount)}</td><td class="mono right">${fmt(p.principal_balance_after)}</td><td><span class="badge ${p.payment_status==='paid'?'held':'split'}">${enumLabel('pay_status',p.payment_status)}</span></td><td onclick="event.stopPropagation()"><button class="icon-btn del" onclick="deletePay(${p.payment_id},${id})">刪</button></td></tr>`);
+  pays.forEach(p => payRows += `<tr><td class="mono">${p.period_no||'—'}</td><td class="mono">${rocShort(p.due_date)}</td><td class="mono right">${fmt(p.principal_amount)}</td><td class="mono right">${fmt(p.interest_amount)}</td><td class="mono right">${fmt(p.total_amount)}</td><td class="mono right">${fmt(p.principal_balance_after)}</td><td><span class="badge ${p.payment_status==='paid'?'held':'split'}">${enumLabel('pay_status',p.payment_status)}</span></td><td onclick="event.stopPropagation()"><button class="icon-btn del" onclick="deletePay(${p.payment_id},${id})">刪</button></td></tr>`);
   if (!payRows) payRows = `<tr><td colspan="8" style="color:var(--text-dim)">尚無繳款記錄</td></tr>`;
 
   $('#loanDetail').innerHTML = `
