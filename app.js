@@ -189,6 +189,20 @@ function rocShort(s) {
   if (!m) return s;
   return `${parseInt(m[1])-1911}/${m[2]}/${m[3]}`;
 }
+/* 民國年/月/日 → 西元 YYYY-MM-DD（存進資料庫用） */
+function rocToWest(yr, mo, dy) {
+  yr = parseInt(yr); mo = parseInt(mo); dy = parseInt(dy);
+  if (!yr || !mo || !dy) return null;
+  const west = yr + 1911;
+  return `${west}-${String(mo).padStart(2,'0')}-${String(dy).padStart(2,'0')}`;
+}
+/* 西元 YYYY-MM-DD → 拆成民國 {y,m,d}（編輯時回填用） */
+function westToRoc(s) {
+  if (!s) return { y:'', m:'', d:'' };
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return { y:'', m:'', d:'' };
+  return { y: parseInt(m[1])-1911, m: parseInt(m[2]), d: parseInt(m[3]) };
+}
 function esc(s) { return (s==null?'':String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function markDirty() { dirty = true; $('#dataStatus').textContent = '⚠ 有未儲存變更，記得「儲存到檔案」'; $('#dataStatus').style.color = 'var(--amber)'; }
 function markClean() { dirty = false; $('#dataStatus').textContent = '已儲存 / 無變更'; $('#dataStatus').style.color = 'var(--text-dim)'; }

@@ -13,6 +13,44 @@ function updatePing(input, hintId) {
   el.textContent = (v && v > 0) ? `≈ ${(v * 0.3025).toFixed(2)} 坪` : '';
 }
 
+/* 民國年日期欄位（年/月/日三格），name 為基底，存檔時組成西元
+   用法：fieldRocDate('acquired_at','取得日', r.acquired_at) */
+function fieldRocDate(name, label, westValue, opts={}) {
+  const roc = westToRoc(westValue);
+  return `<div class="field ${opts.full?'full':''}">
+    <label>${label}（民國年）${opts.req?' <span class="req">*</span>':''}</label>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="color:var(--text-dim)">民國</span>
+      <input data-roc="${name}" data-part="y" type="number" value="${roc.y}" placeholder="108" style="width:70px" oninput="updateRocWest('${name}')">
+      <span style="color:var(--text-dim)">年</span>
+      <input data-roc="${name}" data-part="m" type="number" value="${roc.m}" placeholder="3" style="width:55px" oninput="updateRocWest('${name}')">
+      <span style="color:var(--text-dim)">月</span>
+      <input data-roc="${name}" data-part="d" type="number" value="${roc.d}" placeholder="15" style="width:55px" oninput="updateRocWest('${name}')">
+      <span style="color:var(--text-dim)">日</span>
+      <span id="west_${name}" style="color:var(--accent);font-weight:600;white-space:nowrap;margin-left:6px">${westValue?'= 西元'+westValue:''}</span>
+    </div>
+    ${opts.hint?`<div class="hint">${opts.hint}</div>`:''}
+  </div>`;
+}
+/* 三格輸入時即時顯示換算的西元年 */
+function updateRocWest(name) {
+  const y = document.querySelector(`[data-roc="${name}"][data-part="y"]`).value;
+  const m = document.querySelector(`[data-roc="${name}"][data-part="m"]`).value;
+  const d = document.querySelector(`[data-roc="${name}"][data-part="d"]`).value;
+  const west = rocToWest(y, m, d);
+  const el = document.getElementById('west_' + name);
+  if (el) el.textContent = west ? '= 西元' + west : '';
+}
+/* 從表單讀出某個民國年欄位，回傳西元字串（給 saveXXX 用） */
+function readRocDate(name) {
+  const yEl = document.querySelector(`[data-roc="${name}"][data-part="y"]`);
+  if (!yEl) return null;
+  const y = yEl.value;
+  const m = document.querySelector(`[data-roc="${name}"][data-part="m"]`).value;
+  const d = document.querySelector(`[data-roc="${name}"][data-part="d"]`).value;
+  return rocToWest(y, m, d);
+}
+
 function selectOptions(group, current) {
   return ENUMS[group].map(([v,l]) => `<option value="${v}" ${v===current?'selected':''}>${l}</option>`).join('');
 }
@@ -65,11 +103,11 @@ function openLandForm(id) {
       ${fieldText('announced_value_date','公告現值年期',r.announced_value_date,{type:'date'})}
 
       <div class="section-label">生命週期</div>
-      ${fieldText('acquired_at','取得日',r.acquired_at,{type:'date',hint:'這張權狀的「出生」'})}
+      ${fieldRocDate('acquired_at','取得日',r.acquired_at,{hint:'這張權狀的「出生」'})}
       ${fieldSelect('acquisition_type','取得方式','land_acq',r.acquisition_type)}
       ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','land_status',r.lifecycle_status||'held')}
-      ${fieldText('disposed_at','處分日',r.disposed_at,{type:'date',hint:'出售/分割/合併才填'})}
+      ${fieldRocDate('disposed_at','處分日',r.disposed_at,{hint:'出售/分割/合併才填'})}
       ${fieldSelect('disposal_type','處分方式','land_disposal',r.disposal_type)}
 
       <div class="section-label">他項權利與文件</div>
@@ -87,6 +125,9 @@ function openLandForm(id) {
 function saveLand(id) {
   const f = readForm();
   if (!f.land_number) { toast('地號為必填', true); return; }
+  // 民國年日期欄位：從三格組成西元
+  f.acquired_at = readRocDate('acquired_at');
+  f.disposed_at = readRocDate('disposed_at');
   const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','land_grade','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
   if (id) {
@@ -123,7 +164,7 @@ function openBuildingForm(id) {
       ${fieldText('structure','主要構造',r.structure,{ph:'鋼筋混凝土造'})}
       ${fieldText('total_floors','總樓層',r.total_floors,{type:'number'})}
       ${fieldText('floor_located','所在層次',r.floor_located,{ph:'五層'})}
-      ${fieldText('completion_date','建築完成日',r.completion_date,{type:'date',hint:'影響屋齡'})}
+      ${fieldRocDate('completion_date','建築完成日',r.completion_date,{hint:'影響屋齡'})}
       ${fieldText('usage_registered','登記用途',r.usage_registered,{ph:'住家用'})}
 
       <div class="section-label">面積</div>
@@ -141,11 +182,11 @@ function openBuildingForm(id) {
       ${fieldText('share_denominator','共有持分分母',r.share_denominator,{type:'number'})}
 
       <div class="section-label">生命週期</div>
-      ${fieldText('acquired_at','取得日',r.acquired_at,{type:'date',hint:'自地自建為保存登記日'})}
+      ${fieldRocDate('acquired_at','取得日',r.acquired_at,{hint:'自地自建為保存登記日'})}
       ${fieldSelect('acquisition_type','取得方式','building_acq',r.acquisition_type)}
       ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number',hint:'自地自建為營造成本'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','building_status',r.lifecycle_status||'held')}
-      ${fieldText('disposed_at','處分日',r.disposed_at,{type:'date'})}
+      ${fieldRocDate('disposed_at','處分日',r.disposed_at)}
       ${fieldSelect('disposal_type','處分方式','building_disposal',r.disposal_type)}
 
       <div class="section-label">他項權利與文件</div>
@@ -162,6 +203,10 @@ function openBuildingForm(id) {
 function saveBuilding(id) {
   const f = readForm();
   if (!f.building_number) { toast('建號為必填', true); return; }
+  // 民國年日期欄位：從三格組成西元
+  f.completion_date = readRocDate('completion_date');
+  f.acquired_at = readRocDate('acquired_at');
+  f.disposed_at = readRocDate('disposed_at');
   const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
   if (id) {
