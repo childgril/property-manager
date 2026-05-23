@@ -1,0 +1,326 @@
+/* ============================================================
+   權狀管理系統 — 第一版
+   技術：sql.js (瀏覽器內 SQLite)，資料存本機
+   只做「權狀管理」(土地/建物 CRUD + 生命週期)，
+   後續可擴充物件/買賣/借款/租賃
+   ============================================================ */
+
+let SQL = null;      // sql.js 模組
+let db = null;       // 資料庫實例
+let dirty = false;   // 是否有未儲存變更
+
+/* ---------- 資料表結構（對應 schema 文件的權狀部分） ---------- */
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS lands (
+  land_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  deed_code TEXT,
+  county TEXT, district TEXT, section_name TEXT, land_number TEXT,
+  title_deed_number TEXT,
+  land_category TEXT, zoning TEXT,
+  total_area_sqm REAL, share_numerator INTEGER, share_denominator INTEGER,
+  announced_value_per_sqm REAL, announced_value_date TEXT,
+  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT,
+  deed_physical_location TEXT,
+  acquired_at TEXT, acquisition_type TEXT, acquisition_cost REAL,
+  disposed_at TEXT, disposal_type TEXT,
+  lifecycle_status TEXT DEFAULT 'held',
+  parent_land_id INTEGER,
+  notes TEXT,
+  created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS buildings (
+  building_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  deed_code TEXT,
+  county TEXT, district TEXT, section_name TEXT, building_number TEXT,
+  door_address TEXT, title_deed_number TEXT,
+  building_type TEXT, structure TEXT,
+  total_floors INTEGER, floor_located TEXT,
+  completion_date TEXT, usage_registered TEXT,
+  main_area_sqm REAL, auxiliary_area_sqm REAL, common_area_sqm REAL,
+  share_numerator INTEGER, share_denominator INTEGER, total_registered_area_sqm REAL,
+  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT,
+  deed_physical_location TEXT,
+  acquired_at TEXT, acquisition_type TEXT, acquisition_cost REAL,
+  disposed_at TEXT, disposal_type TEXT,
+  lifecycle_status TEXT DEFAULT 'held',
+  notes TEXT,
+  created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS deed_events (
+  event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  deed_type TEXT, deed_id INTEGER,
+  event_date TEXT, event_kind TEXT, description TEXT, amount REAL,
+  created_at TEXT
+);
+`;
+
+/* ---------- 列舉值（下拉選單用） ---------- */
+const ENUMS = {
+  land_category: [['residential','住宅區'],['commercial','商業區'],['industrial','工業區'],['agricultural','農牧用地'],['construction','建地'],['public_facility','公共設施用地'],['other','其他']],
+  land_acq: [['purchase','買賣'],['inheritance','繼承'],['gift','贈與'],['split','分割產生'],['merge','合併產生']],
+  land_disposal: [['sale','出售'],['split','分割消滅'],['merge','合併消滅'],['expropriation','徵收']],
+  land_status: [['held','持有中'],['sold','已售出'],['split','已分割'],['merged','已合併']],
+  building_type: [['apartment','公寓'],['elevator_building','電梯大樓'],['townhouse','透天厝'],['suite','套房'],['store','店面'],['office','辦公'],['factory','廠房'],['other','其他']],
+  building_acq: [['purchase','買賣'],['self_build','自地自建'],['inheritance','繼承'],['gift','贈與']],
+  building_disposal: [['sale','出售'],['demolition','拆除滅失'],['expropriation','徵收']],
+  building_status: [['held','持有中'],['sold','已售出'],['demolished','已滅失']],
+  event_kind: [['acquire','取得'],['mortgage','設定抵押'],['release','塗銷抵押'],['improvement','改良'],['holding','持有費用'],['valuation','估價'],['split','分割'],['merge','合併'],['disposal','處分'],['other','其他']],
+};
+function enumLabel(group, val) {
+  const f = (ENUMS[group]||[]).find(e => e[0] === val);
+  return f ? f[1] : (val || '—');
+}
+
+/* ---------- 工具函式 ---------- */
+const $ = sel => document.querySelector(sel);
+const now = () => new Date().toISOString().slice(0,10);
+function fmt(n) { return n == null || n === '' ? '—' : Number(n).toLocaleString('zh-TW'); }
+function sqm2ping(s) { return s ? (s * 0.3025).toFixed(2) : '—'; }
+function esc(s) { return (s==null?'':String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function markDirty() { dirty = true; $('#dataStatus').textContent = '⚠ 有未儲存變更，記得「儲存到檔案」'; $('#dataStatus').style.color = 'var(--amber)'; }
+function markClean() { dirty = false; $('#dataStatus').textContent = '已儲存 / 無變更'; $('#dataStatus').style.color = 'var(--text-dim)'; }
+
+function toast(msg, isErr) {
+  const t = $('#toast'); t.textContent = msg;
+  t.className = 'toast show' + (isErr ? ' err' : '');
+  setTimeout(() => t.className = 'toast' + (isErr ? ' err' : ''), 2200);
+}
+
+/* SQL 查詢輔助：回傳物件陣列 */
+function query(sql, params=[]) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const rows = [];
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
+  return rows;
+}
+function run(sql, params=[]) { db.run(sql, params); markDirty(); }
+
+/* ---------- 初始化 ---------- */
+async function boot() {
+  try {
+    SQL = await initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}` });
+    // 嘗試從 localStorage 還原上次工作階段（僅暫存，正式請存檔）
+    const saved = localStorage.getItem('deedDbAutoSave');
+    if (saved) {
+      const bytes = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
+      db = new SQL.Database(bytes);
+    } else {
+      db = new SQL.Database();
+      db.run(SCHEMA);
+    }
+    db.run(SCHEMA); // 確保表存在
+    $('#boot').style.display = 'none';
+    $('#app').style.display = 'flex';
+    bindUI();
+    showPage('dashboard');
+    markClean();
+  } catch (e) {
+    $('#boot').innerHTML = '載入失敗：' + esc(e.message) + '<br>請確認網路連線（首次需下載 SQLite 引擎）。';
+  }
+}
+
+/* 自動暫存到 localStorage（避免關掉就不見，但仍建議存檔） */
+function autoSave() {
+  try {
+    const data = db.export();
+    let bin = ''; const bytes = new Uint8Array(data);
+    for (let i=0;i<bytes.length;i++) bin += String.fromCharCode(bytes[i]);
+    localStorage.setItem('deedDbAutoSave', btoa(bin));
+  } catch(e) { /* 資料太大時 localStorage 可能失敗，忽略，靠存檔 */ }
+}
+
+/* ---------- UI 綁定 ---------- */
+function bindUI() {
+  document.querySelectorAll('.nav-item').forEach(n =>
+    n.addEventListener('click', () => showPage(n.dataset.page)));
+
+  $('#btnSave').addEventListener('click', saveToFile);
+  $('#btnLoad').addEventListener('click', () => $('#fileInput').click());
+  $('#fileInput').addEventListener('change', loadFromFile);
+  $('#btnSeed').addEventListener('click', seedData);
+  $('#modalBg').addEventListener('click', e => { if (e.target === $('#modalBg')) closeModal(); });
+
+  window.addEventListener('beforeunload', e => {
+    autoSave();
+    if (dirty) { e.preventDefault(); e.returnValue = ''; }
+  });
+}
+
+const CRUMB = { dashboard:'總覽', lands:'土地權狀', buildings:'建物權狀', deedDetail:'權狀明細' };
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === id));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === id));
+  $('#crumb').innerHTML = '<b>' + CRUMB[id] + '</b>';
+  if (id === 'dashboard') renderDashboard();
+  if (id === 'lands') renderLandList();
+  if (id === 'buildings') renderBuildingList();
+  window.scrollTo(0,0);
+}
+
+/* ============================================================
+   檔案存取（資料存本機）
+   ============================================================ */
+function saveToFile() {
+  const data = db.export();
+  const blob = new Blob([data], { type: 'application/x-sqlite3' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `權狀資料_${now()}.db`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  markClean();
+  toast('已匯出 .db 檔到你的下載資料夾');
+}
+function loadFromFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      db = new SQL.Database(new Uint8Array(reader.result));
+      db.run(SCHEMA);
+      markClean(); toast('已載入：' + file.name);
+      showPage('dashboard');
+    } catch (err) { toast('載入失敗：' + err.message, true); }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+}
+
+/* ============================================================
+   總覽頁
+   ============================================================ */
+function renderDashboard() {
+  const landTotal = query("SELECT COUNT(*) c FROM lands")[0].c;
+  const landHeld = query("SELECT COUNT(*) c FROM lands WHERE lifecycle_status='held'")[0].c;
+  const bldTotal = query("SELECT COUNT(*) c FROM buildings")[0].c;
+  const bldHeld = query("SELECT COUNT(*) c FROM buildings WHERE lifecycle_status='held'")[0].c;
+  const landCost = query("SELECT COALESCE(SUM(acquisition_cost),0) s FROM lands WHERE lifecycle_status='held'")[0].s;
+  const bldCost = query("SELECT COALESCE(SUM(acquisition_cost),0) s FROM buildings WHERE lifecycle_status='held'")[0].s;
+
+  let html = `<h2 class="page-title">總覽</h2>
+    <div class="page-desc">權狀管理系統第一版 · 資料儲存在你的本機</div>
+    <div class="stats">
+      <div class="stat"><div class="label">土地權狀</div><div class="value" style="color:var(--land)">${landTotal}</div><div class="page-desc" style="margin:4px 0 0">持有中 ${landHeld}</div></div>
+      <div class="stat"><div class="label">建物權狀</div><div class="value" style="color:var(--building)">${bldTotal}</div><div class="page-desc" style="margin:4px 0 0">持有中 ${bldHeld}</div></div>
+      <div class="stat"><div class="label">土地取得成本（持有中）</div><div class="value" style="font-size:18px">${fmt(landCost)}</div></div>
+      <div class="stat"><div class="label">建物取得成本（持有中）</div><div class="value" style="font-size:18px">${fmt(bldCost)}</div></div>
+    </div>`;
+
+  if (landTotal === 0 && bldTotal === 0) {
+    html += `<div class="note">👋 目前沒有任何資料。你可以點左下角「🌱 載入範例資料」看看系統怎麼運作，或直接到「土地權狀」「建物權狀」開始新增。所有資料只存在你的電腦，記得用「💾 儲存到檔案」匯出備份。</div>`;
+  } else {
+    const recentL = query("SELECT land_id id, land_number num, lifecycle_status st FROM lands ORDER BY land_id DESC LIMIT 5");
+    const recentB = query("SELECT building_id id, building_number num, lifecycle_status st FROM buildings ORDER BY building_id DESC LIMIT 5");
+    html += `<div class="card"><div class="card-head"><h3>最近的權狀</h3></div><table><tbody>`;
+    recentL.forEach(r => html += `<tr class="clickable" onclick="openDeedDetail('land',${r.id})"><td><span class="badge land">土地</span></td><td class="mono">${esc(r.num)}</td><td><span class="badge ${r.st}">${enumLabel('land_status',r.st)}</span></td></tr>`);
+    recentB.forEach(r => html += `<tr class="clickable" onclick="openDeedDetail('building',${r.id})"><td><span class="badge building">建物</span></td><td class="mono">${esc(r.num)}</td><td><span class="badge ${r.st}">${enumLabel('building_status',r.st)}</span></td></tr>`);
+    html += `</tbody></table></div>`;
+  }
+  $('#dashboard').innerHTML = html;
+}
+
+/* ============================================================
+   土地權狀：列表
+   ============================================================ */
+let landFilter = 'all', landSearch = '';
+function renderLandList() {
+  let sql = "SELECT * FROM lands";
+  const where = [];
+  if (landFilter === 'held') where.push("lifecycle_status='held'");
+  if (landFilter === 'disposed') where.push("lifecycle_status IN ('sold','split','merged')");
+  if (landSearch) where.push(`(land_number LIKE '%${landSearch}%' OR section_name LIKE '%${landSearch}%' OR title_deed_number LIKE '%${landSearch}%')`);
+  if (where.length) sql += " WHERE " + where.join(" AND ");
+  sql += " ORDER BY land_id DESC";
+  const rows = query(sql);
+
+  let html = `<h2 class="page-title">土地權狀</h2>
+    <div class="page-desc">每筆地號獨立管理 · 各有生命週期</div>
+    <div class="toolbar">
+      <button class="chip ${landFilter==='all'?'on':''}" onclick="setLandFilter('all')">全部</button>
+      <button class="chip ${landFilter==='held'?'on':''}" onclick="setLandFilter('held')">持有中</button>
+      <button class="chip ${landFilter==='disposed'?'on':''}" onclick="setLandFilter('disposed')">已處分</button>
+      <input class="search" placeholder="搜尋地號 / 地段 / 權狀字號" value="${esc(landSearch)}" oninput="onLandSearch(this.value)">
+      <button class="btn" style="margin-left:auto" onclick="openLandForm()">+ 新增土地權狀</button>
+    </div>`;
+
+  if (rows.length === 0) {
+    html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無土地權狀${landSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openLandForm()">+ 新增第一筆</button></div></div>`;
+  } else {
+    html += `<div class="card"><table>
+      <thead><tr><th>地號</th><th>地段</th><th>使用分區</th><th class="right">面積㎡</th><th>持分</th><th>取得日</th><th>狀態</th><th></th></tr></thead><tbody>`;
+    rows.forEach(r => {
+      const share = (r.share_numerator && r.share_denominator) ? `${r.share_numerator}/${r.share_denominator}` : '—';
+      html += `<tr class="clickable" onclick="openDeedDetail('land',${r.land_id})">
+        <td class="mono">${esc(r.land_number)}</td>
+        <td>${esc(r.section_name)||'—'}</td>
+        <td>${enumLabel('land_category',r.land_category)}</td>
+        <td class="mono right">${fmt(r.total_area_sqm)}</td>
+        <td class="mono">${share}</td>
+        <td class="mono">${esc(r.acquired_at)||'—'}</td>
+        <td><span class="badge ${r.lifecycle_status}">${enumLabel('land_status',r.lifecycle_status)}</span></td>
+        <td onclick="event.stopPropagation()"><div class="row-actions">
+          <button class="icon-btn" onclick="openLandForm(${r.land_id})">編輯</button>
+          <button class="icon-btn del" onclick="deleteLand(${r.land_id})">刪除</button>
+        </div></td></tr>`;
+    });
+    html += `</tbody></table></div><div class="page-desc">共 ${rows.length} 筆</div>`;
+  }
+  $('#lands').innerHTML = html;
+}
+function setLandFilter(f) { landFilter = f; renderLandList(); }
+function onLandSearch(v) { landSearch = v.replace(/'/g,''); renderLandList(); }
+
+/* ============================================================
+   建物權狀：列表
+   ============================================================ */
+let bldFilter = 'all', bldSearch = '';
+function renderBuildingList() {
+  let sql = "SELECT * FROM buildings";
+  const where = [];
+  if (bldFilter === 'held') where.push("lifecycle_status='held'");
+  if (bldFilter === 'disposed') where.push("lifecycle_status IN ('sold','demolished')");
+  if (bldSearch) where.push(`(building_number LIKE '%${bldSearch}%' OR door_address LIKE '%${bldSearch}%' OR title_deed_number LIKE '%${bldSearch}%')`);
+  if (where.length) sql += " WHERE " + where.join(" AND ");
+  sql += " ORDER BY building_id DESC";
+  const rows = query(sql);
+
+  let html = `<h2 class="page-title">建物權狀</h2>
+    <div class="page-desc">每筆建號獨立管理 · 各有生命週期（取得日可與土地不同步）</div>
+    <div class="toolbar">
+      <button class="chip ${bldFilter==='all'?'on':''}" onclick="setBldFilter('all')">全部</button>
+      <button class="chip ${bldFilter==='held'?'on':''}" onclick="setBldFilter('held')">持有中</button>
+      <button class="chip ${bldFilter==='disposed'?'on':''}" onclick="setBldFilter('disposed')">已處分</button>
+      <input class="search" placeholder="搜尋建號 / 門牌 / 權狀字號" value="${esc(bldSearch)}" oninput="onBldSearch(this.value)">
+      <button class="btn" style="margin-left:auto" onclick="openBuildingForm()">+ 新增建物權狀</button>
+    </div>`;
+
+  if (rows.length === 0) {
+    html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無建物權狀${bldSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openBuildingForm()">+ 新增第一筆</button></div></div>`;
+  } else {
+    html += `<div class="card"><table>
+      <thead><tr><th>建號</th><th>門牌</th><th>型態</th><th class="right">主建物㎡</th><th class="right">總登記㎡</th><th>取得日</th><th>狀態</th><th></th></tr></thead><tbody>`;
+    rows.forEach(r => {
+      html += `<tr class="clickable" onclick="openDeedDetail('building',${r.building_id})">
+        <td class="mono">${esc(r.building_number)}</td>
+        <td>${esc(r.door_address)||'—'}</td>
+        <td>${enumLabel('building_type',r.building_type)}</td>
+        <td class="mono right">${fmt(r.main_area_sqm)}</td>
+        <td class="mono right">${fmt(r.total_registered_area_sqm)}</td>
+        <td class="mono">${esc(r.acquired_at)||'—'}</td>
+        <td><span class="badge ${r.lifecycle_status}">${enumLabel('building_status',r.lifecycle_status)}</span></td>
+        <td onclick="event.stopPropagation()"><div class="row-actions">
+          <button class="icon-btn" onclick="openBuildingForm(${r.building_id})">編輯</button>
+          <button class="icon-btn del" onclick="deleteBuilding(${r.building_id})">刪除</button>
+        </div></td></tr>`;
+    });
+    html += `</tbody></table></div><div class="page-desc">共 ${rows.length} 筆</div>`;
+  }
+  $('#buildings').innerHTML = html;
+}
+function setBldFilter(f) { bldFilter = f; renderBuildingList(); }
+function onBldSearch(v) { bldSearch = v.replace(/'/g,''); renderBuildingList(); }
+
+window.addEventListener('DOMContentLoaded', boot);

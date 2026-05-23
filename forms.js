@@ -1,0 +1,289 @@
+/* ============================================================
+   表單、明細頁、刪除、範例資料
+   ============================================================ */
+
+function closeModal() { $('#modalBg').classList.remove('show'); }
+function openModal(html) { $('#modal').innerHTML = html; $('#modalBg').classList.add('show'); }
+
+function selectOptions(group, current) {
+  return ENUMS[group].map(([v,l]) => `<option value="${v}" ${v===current?'selected':''}>${l}</option>`).join('');
+}
+function fieldText(name, label, val, opts={}) {
+  return `<div class="field ${opts.full?'full':''}">
+    <label>${label}${opts.req?' <span class="req">*</span>':''}</label>
+    <input name="${name}" value="${esc(val)}" ${opts.type?`type="${opts.type}"`:''} ${opts.ph?`placeholder="${opts.ph}"`:''}>
+    ${opts.hint?`<div class="hint">${opts.hint}</div>`:''}</div>`;
+}
+function fieldSelect(name, label, group, val) {
+  return `<div class="field"><label>${label}</label><select name="${name}"><option value="">—</option>${selectOptions(group,val)}</select></div>`;
+}
+function readForm() {
+  const obj = {};
+  $('#modal').querySelectorAll('input,select,textarea').forEach(el => {
+    obj[el.name] = el.value.trim();
+  });
+  return obj;
+}
+
+/* ---------- 土地表單 ---------- */
+function openLandForm(id) {
+  const r = id ? query("SELECT * FROM lands WHERE land_id=?", [id])[0] : {};
+  openModal(`
+    <div class="modal-head"><h3>${id?'編輯':'新增'}土地權狀</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="section-label">地籍標示</div>
+      ${fieldText('county','縣市',r.county,{ph:'台北市'})}
+      ${fieldText('district','鄉鎮市區',r.district,{ph:'大安區'})}
+      ${fieldText('section_name','段/小段',r.section_name,{ph:'大安段三小段'})}
+      ${fieldText('land_number','地號',r.land_number,{req:true,ph:'0512-0000'})}
+      ${fieldText('title_deed_number','權狀字號',r.title_deed_number,{full:true})}
+      ${fieldSelect('land_category','使用分區/地目','land_category',r.land_category)}
+      ${fieldText('zoning','都市計畫分區',r.zoning,{ph:'第三種住宅區'})}
+
+      <div class="section-label">面積與持分</div>
+      ${fieldText('total_area_sqm','地號總面積㎡',r.total_area_sqm,{type:'number'})}
+      <div class="field"></div>
+      ${fieldText('share_numerator','持分分子',r.share_numerator,{type:'number',ph:'完整持有填同分母'})}
+      ${fieldText('share_denominator','持分分母',r.share_denominator,{type:'number'})}
+      ${fieldText('announced_value_per_sqm','公告現值/㎡',r.announced_value_per_sqm,{type:'number',hint:'影響土地增值稅'})}
+      ${fieldText('announced_value_date','公告現值年期',r.announced_value_date,{type:'date'})}
+
+      <div class="section-label">生命週期</div>
+      ${fieldText('acquired_at','取得日',r.acquired_at,{type:'date',hint:'這張權狀的「出生」'})}
+      ${fieldSelect('acquisition_type','取得方式','land_acq',r.acquisition_type)}
+      ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number'})}
+      ${fieldSelect('lifecycle_status','生命週期狀態','land_status',r.lifecycle_status||'held')}
+      ${fieldText('disposed_at','處分日',r.disposed_at,{type:'date',hint:'出售/分割/合併才填'})}
+      ${fieldSelect('disposal_type','處分方式','land_disposal',r.disposal_type)}
+
+      <div class="section-label">他項權利與文件</div>
+      <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
+      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
+      ${fieldText('other_rights_notes','其他他項權利',r.other_rights_notes,{full:true,ph:'地上權、地役權等'})}
+      ${fieldText('notes','備註',r.notes,{full:true})}
+    </div></div>
+    <div class="modal-foot">
+      <span></span>
+      <div><button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="saveLand(${id||0})">儲存</button></div>
+    </div>`);
+}
+function saveLand(id) {
+  const f = readForm();
+  if (!f.land_number) { toast('地號為必填', true); return; }
+  const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
+  const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
+  if (id) {
+    run(`UPDATE lands SET ${cols.map(c=>c+'=?').join(',')}, updated_at=? WHERE land_id=?`, [...vals, now(), id]);
+    toast('已更新土地權狀');
+  } else {
+    run(`INSERT INTO lands (${cols.join(',')},created_at,updated_at) VALUES (${cols.map(()=>'?').join(',')},?,?)`, [...vals, now(), now()]);
+    toast('已新增土地權狀');
+  }
+  autoSave(); closeModal(); renderLandList();
+}
+function deleteLand(id) {
+  const r = query("SELECT land_number FROM lands WHERE land_id=?", [id])[0];
+  if (!confirm(`確定刪除土地權狀 ${r.land_number}？此動作無法復原。`)) return;
+  run("DELETE FROM lands WHERE land_id=?", [id]);
+  run("DELETE FROM deed_events WHERE deed_type='land' AND deed_id=?", [id]);
+  autoSave(); toast('已刪除'); renderLandList();
+}
+
+/* ---------- 建物表單 ---------- */
+function openBuildingForm(id) {
+  const r = id ? query("SELECT * FROM buildings WHERE building_id=?", [id])[0] : {};
+  openModal(`
+    <div class="modal-head"><h3>${id?'編輯':'新增'}建物權狀</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="section-label">建物標示</div>
+      ${fieldText('county','縣市',r.county)}
+      ${fieldText('district','鄉鎮市區',r.district)}
+      ${fieldText('section_name','段/小段',r.section_name)}
+      ${fieldText('building_number','建號',r.building_number,{req:true,ph:'02841-000'})}
+      ${fieldText('door_address','門牌',r.door_address,{full:true})}
+      ${fieldText('title_deed_number','權狀字號',r.title_deed_number,{full:true})}
+      ${fieldSelect('building_type','建物型態','building_type',r.building_type)}
+      ${fieldText('structure','主要構造',r.structure,{ph:'鋼筋混凝土造'})}
+      ${fieldText('total_floors','總樓層',r.total_floors,{type:'number'})}
+      ${fieldText('floor_located','所在層次',r.floor_located,{ph:'五層'})}
+      ${fieldText('completion_date','建築完成日',r.completion_date,{type:'date',hint:'影響屋齡'})}
+      ${fieldText('usage_registered','登記用途',r.usage_registered,{ph:'住家用'})}
+
+      <div class="section-label">面積</div>
+      ${fieldText('main_area_sqm','主建物㎡',r.main_area_sqm,{type:'number'})}
+      ${fieldText('auxiliary_area_sqm','附屬建物㎡',r.auxiliary_area_sqm,{type:'number',hint:'陽台、雨遮'})}
+      ${fieldText('common_area_sqm','共有部分㎡',r.common_area_sqm,{type:'number',hint:'公設'})}
+      ${fieldText('total_registered_area_sqm','權狀總登記㎡',r.total_registered_area_sqm,{type:'number'})}
+      ${fieldText('share_numerator','共有持分分子',r.share_numerator,{type:'number'})}
+      ${fieldText('share_denominator','共有持分分母',r.share_denominator,{type:'number'})}
+
+      <div class="section-label">生命週期</div>
+      ${fieldText('acquired_at','取得日',r.acquired_at,{type:'date',hint:'自地自建為保存登記日'})}
+      ${fieldSelect('acquisition_type','取得方式','building_acq',r.acquisition_type)}
+      ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number',hint:'自地自建為營造成本'})}
+      ${fieldSelect('lifecycle_status','生命週期狀態','building_status',r.lifecycle_status||'held')}
+      ${fieldText('disposed_at','處分日',r.disposed_at,{type:'date'})}
+      ${fieldSelect('disposal_type','處分方式','building_disposal',r.disposal_type)}
+
+      <div class="section-label">他項權利與文件</div>
+      <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
+      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location)}
+      ${fieldText('other_rights_notes','其他他項權利',r.other_rights_notes,{full:true})}
+      ${fieldText('notes','備註',r.notes,{full:true})}
+    </div></div>
+    <div class="modal-foot"><span></span>
+      <div><button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="saveBuilding(${id||0})">儲存</button></div>
+    </div>`);
+}
+function saveBuilding(id) {
+  const f = readForm();
+  if (!f.building_number) { toast('建號為必填', true); return; }
+  const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
+  const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
+  if (id) {
+    run(`UPDATE buildings SET ${cols.map(c=>c+'=?').join(',')}, updated_at=? WHERE building_id=?`, [...vals, now(), id]);
+    toast('已更新建物權狀');
+  } else {
+    run(`INSERT INTO buildings (${cols.join(',')},created_at,updated_at) VALUES (${cols.map(()=>'?').join(',')},?,?)`, [...vals, now(), now()]);
+    toast('已新增建物權狀');
+  }
+  autoSave(); closeModal(); renderBuildingList();
+}
+function deleteBuilding(id) {
+  const r = query("SELECT building_number FROM buildings WHERE building_id=?", [id])[0];
+  if (!confirm(`確定刪除建物權狀 ${r.building_number}？此動作無法復原。`)) return;
+  run("DELETE FROM buildings WHERE building_id=?", [id]);
+  run("DELETE FROM deed_events WHERE deed_type='building' AND deed_id=?", [id]);
+  autoSave(); toast('已刪除'); renderBuildingList();
+}
+
+/* ============================================================
+   權狀明細頁（含生命週期事件）
+   ============================================================ */
+function openDeedDetail(type, id) {
+  const tbl = type === 'land' ? 'lands' : 'buildings';
+  const pk = type === 'land' ? 'land_id' : 'building_id';
+  const r = query(`SELECT * FROM ${tbl} WHERE ${pk}=?`, [id])[0];
+  if (!r) { toast('找不到權狀', true); return; }
+  const events = query("SELECT * FROM deed_events WHERE deed_type=? AND deed_id=? ORDER BY event_date", [type, id]);
+
+  const badge = type==='land' ? '<span class="badge land">土地</span>' : '<span class="badge building">建物</span>';
+  const num = type==='land' ? r.land_number : r.building_number;
+  const statusGroup = type==='land' ? 'land_status' : 'building_status';
+
+  let cells = '';
+  const add = (k,v) => cells += `<div class="cell"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  if (type === 'land') {
+    add('地號', `<span class="mono">${esc(r.land_number)}</span>`);
+    add('權狀字號', `<span class="mono">${esc(r.title_deed_number)||'—'}</span>`);
+    add('地段', esc(r.section_name)||'—');
+    add('使用分區', enumLabel('land_category',r.land_category));
+    add('總面積', `<span class="mono">${fmt(r.total_area_sqm)} ㎡（${sqm2ping(r.total_area_sqm)} 坪）</span>`);
+    add('持分', (r.share_numerator&&r.share_denominator)?`<span class="mono">${r.share_numerator}/${r.share_denominator}</span>`:'—');
+    add('公告現值/㎡', `<span class="mono">${fmt(r.announced_value_per_sqm)}</span>`);
+    add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
+    add('權狀正本位置', esc(r.deed_physical_location)||'—');
+    add('抵押權', r.has_mortgage?'已設定':'無');
+  } else {
+    add('建號', `<span class="mono">${esc(r.building_number)}</span>`);
+    add('權狀字號', `<span class="mono">${esc(r.title_deed_number)||'—'}</span>`);
+    add('門牌', esc(r.door_address)||'—');
+    add('型態', enumLabel('building_type',r.building_type) + (r.floor_located?` · ${esc(r.floor_located)}`:''));
+    add('構造', esc(r.structure)||'—');
+    add('建築完成', esc(r.completion_date)||'—');
+    add('主建物', `<span class="mono">${fmt(r.main_area_sqm)} ㎡</span>`);
+    add('總登記面積', `<span class="mono">${fmt(r.total_registered_area_sqm)} ㎡（${sqm2ping(r.total_registered_area_sqm)} 坪）</span>`);
+    add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
+    add('權狀正本位置', esc(r.deed_physical_location)||'—');
+  }
+
+  let evHtml = '';
+  if (events.length === 0) {
+    evHtml = `<div class="page-desc" style="padding:8px 0">尚無生命週期事件</div>`;
+  } else {
+    evHtml = '<div class="timeline">';
+    events.forEach(e => {
+      const amt = e.amount ? ` · ${fmt(e.amount)}` : '';
+      evHtml += `<div class="tl-item"><div class="date">${esc(e.event_date)}</div><div class="ev">${esc(e.description)}${amt} <span class="badge" style="background:var(--surface-2);color:var(--text-dim);font-size:10px">${enumLabel('event_kind',e.event_kind)}</span></div></div>`;
+    });
+    evHtml += '</div>';
+  }
+
+  $('#deedDetail').innerHTML = `
+    <button class="back-link" onclick="showPage('${type==='land'?'lands':'buildings'}')">← 返回${type==='land'?'土地':'建物'}權狀</button>
+    <h2 class="page-title">${badge} ${esc(num)}</h2>
+    <div class="page-desc">生命週期狀態：<span class="badge ${r.lifecycle_status}">${enumLabel(statusGroup,r.lifecycle_status)}</span></div>
+    <div class="card"><div class="card-head"><h3>權狀資料</h3>
+      <button class="btn ghost" onclick="${type==='land'?`openLandForm(${id})`:`openBuildingForm(${id})`}">編輯</button></div>
+      <div style="padding:0"><div class="detail-grid">${cells}</div></div>
+    </div>
+    <div class="card"><div class="card-head"><h3>生命週期事件</h3>
+      <button class="btn ghost" onclick="openEventForm('${type}',${id})">+ 新增事件</button></div>
+      <div style="padding:18px">${evHtml}</div>
+    </div>
+    <div class="note">💡 這張權狀有自己獨立的生命週期。將來接上「物件 / 買賣 / 借款」模組後，這裡會自動顯示相關的抵押設定、買賣交易等事件。</div>`;
+
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'deedDetail'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  $('#crumb').innerHTML = `${type==='land'?'土地權狀':'建物權狀'} / <b>權狀明細</b>`;
+  window.scrollTo(0,0);
+}
+
+/* ---------- 生命週期事件表單 ---------- */
+function openEventForm(type, deedId) {
+  openModal(`
+    <div class="modal-head"><h3>新增生命週期事件</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      ${fieldText('event_date','日期',now(),{type:'date',req:true})}
+      ${fieldSelect('event_kind','事件類型','event_kind','other')}
+      ${fieldText('description','說明',' ',{full:true,ph:'例：設定抵押權給合庫'})}
+      ${fieldText('amount','金額（選填）','',{type:'number'})}
+    </div></div>
+    <div class="modal-foot"><span></span>
+      <div><button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="saveEvent('${type}',${deedId})">儲存</button></div>
+    </div>`);
+}
+function saveEvent(type, deedId) {
+  const f = readForm();
+  if (!f.event_date) { toast('日期為必填', true); return; }
+  run("INSERT INTO deed_events (deed_type,deed_id,event_date,event_kind,description,amount,created_at) VALUES (?,?,?,?,?,?,?)",
+    [type, deedId, f.event_date, f.event_kind, f.description||'', f.amount||null, now()]);
+  autoSave(); closeModal(); toast('已新增事件'); openDeedDetail(type, deedId);
+}
+
+/* ============================================================
+   範例資料
+   ============================================================ */
+function seedData() {
+  if (query("SELECT COUNT(*) c FROM lands")[0].c > 0 || query("SELECT COUNT(*) c FROM buildings")[0].c > 0) {
+    if (!confirm('目前已有資料，載入範例會「新增」幾筆示範資料（不會刪除現有）。繼續？')) return;
+  }
+  const t = now();
+  // 三筆土地（公寓基地持分）
+  [['0512-0000','大安段三小段','residential',486.30,152,10000,328000,'2019-03-15','purchase',null],
+   ['0513-0000','大安段三小段','residential',312.55,152,10000,328000,'2019-03-15','purchase',null],
+   ['0145-0000','中壢中央段','construction',330.00,1,1,null,'2018-04-12','purchase',9800000]
+  ].forEach(d => {
+    run(`INSERT INTO lands (land_number,section_name,land_category,total_area_sqm,share_numerator,share_denominator,announced_value_per_sqm,acquired_at,acquisition_type,acquisition_cost,county,district,lifecycle_status,deed_physical_location,has_mortgage,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'held',?,?,?,?)`,
+      [d[0],d[1],d[2],d[3],d[4],d[5],d[6],d[7],d[8],d[9],'','','保險箱A-3',1,t,t]);
+  });
+  // 兩筆建物
+  run(`INSERT INTO buildings (building_number,door_address,building_type,structure,total_floors,floor_located,completion_date,usage_registered,main_area_sqm,auxiliary_area_sqm,common_area_sqm,total_registered_area_sqm,acquired_at,acquisition_type,acquisition_cost,lifecycle_status,deed_physical_location,has_mortgage,section_name,created_at,updated_at)
+    VALUES ('02841-000','台北市大安區大安路一段××號5樓','elevator_building','鋼筋混凝土造',12,'五層','2015-08-01','住家用',78.42,9.86,19.24,107.52,'2019-03-15','purchase',21800000,'held','保險箱A-3',1,'大安段三小段',?,?)`,[t,t]);
+  run(`INSERT INTO buildings (building_number,door_address,building_type,structure,total_floors,floor_located,completion_date,usage_registered,main_area_sqm,total_registered_area_sqm,acquired_at,acquisition_type,acquisition_cost,lifecycle_status,deed_physical_location,section_name,created_at,updated_at)
+    VALUES ('00872-000','桃園市中壢區中央路××號','townhouse','鋼筋混凝土造',4,'全棟','2021-03-20','住家用',180.50,226.00,'2021-03-20','self_build',12700000,'held','保險箱A-5','中壢中央段',?,?)`,[t,t]);
+
+  // 幾筆生命週期事件
+  const land1 = query("SELECT land_id FROM lands WHERE land_number='0512-0000'")[0].land_id;
+  run("INSERT INTO deed_events (deed_type,deed_id,event_date,event_kind,description,created_at) VALUES ('land',?,?,?,?,?)",[land1,'2019-03-15','acquire','買賣取得登記',t]);
+  run("INSERT INTO deed_events (deed_type,deed_id,event_date,event_kind,description,created_at) VALUES ('land',?,?,?,?,?)",[land1,'2019-03-15','mortgage','設定抵押權給合作金庫（與建物一併）',t]);
+  const bld1 = query("SELECT building_id FROM buildings WHERE building_number='02841-000'")[0].building_id;
+  run("INSERT INTO deed_events (deed_type,deed_id,event_date,event_kind,description,amount,created_at) VALUES ('building',?,?,?,?,?,?)",[bld1,'2019-05-20','improvement','裝潢',850000,t]);
+  run("INSERT INTO deed_events (deed_type,deed_id,event_date,event_kind,description,amount,created_at) VALUES ('building',?,?,?,?,?,?)",[bld1,'2024-11-03','improvement','浴室翻新',120000,t]);
+
+  autoSave(); toast('已載入範例資料'); showPage('dashboard');
+}
