@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS lands (
   deed_code TEXT,
   county TEXT, district TEXT, section_name TEXT, land_number TEXT,
   title_deed_number TEXT,
-  land_category TEXT, zoning TEXT,
+  land_category TEXT, zoning TEXT, land_grade TEXT,
   total_area_sqm REAL, share_numerator INTEGER, share_denominator INTEGER,
   announced_value_per_sqm REAL, announced_value_date TEXT,
   has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT,
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS loan_payments (
 
 /* ---------- 列舉值（下拉選單用） ---------- */
 const ENUMS = {
-  land_category: [['residential','住宅區'],['commercial','商業區'],['industrial','工業區'],['agricultural','農牧用地'],['construction','建地'],['public_facility','公共設施用地'],['other','其他']],
+  land_category: [['建','建（建築用地）'],['田','田（水田）'],['旱','旱（旱田）'],['林','林（林地）'],['養','養（養殖用地）'],['牧','牧（畜牧用地）'],['礦','礦（礦業用地）'],['鹽','鹽（鹽田）'],['池','池（池塘）'],['線','線（鐵路用地）'],['道','道（道路）'],['水','水（水利用地）'],['溜','溜（蓄水池）'],['溝','溝（溝渠）'],['堤','堤（堤防）'],['原','原（生產原野）'],['雜','雜（雜地）'],['公','公（公共用地）'],['墓','墓（墳墓）'],['祠','祠（祠廟）'],['鐵','鐵（鐵道用地）'],['其他','其他']],
   land_acq: [['purchase','買賣'],['inheritance','繼承'],['gift','贈與'],['split','分割產生'],['merge','合併產生']],
   land_disposal: [['sale','出售'],['split','分割消滅'],['merge','合併消滅'],['expropriation','徵收']],
   land_status: [['held','持有中'],['sold','已售出'],['split','已分割'],['merged','已合併']],
@@ -357,7 +357,7 @@ function renderLandList() {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無土地權狀${landSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openLandForm()">+ 新增第一筆</button></div></div>`;
   } else {
     html += `<div class="card"><table>
-      <thead><tr><th>地號</th><th>地段</th><th>使用分區</th><th class="right">面積㎡</th><th>持分</th><th>取得日</th><th>狀態</th><th></th></tr></thead><tbody>`;
+      <thead><tr><th>地號</th><th>地段</th><th>地目</th><th class="right">面積㎡</th><th>持分</th><th>取得日</th><th>狀態</th><th></th></tr></thead><tbody>`;
     rows.forEach(r => {
       const share = (r.share_numerator && r.share_denominator) ? `${r.share_numerator}/${r.share_denominator}` : '—';
       html += `<tr class="clickable" onclick="openDeedDetail('land',${r.land_id})">

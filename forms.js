@@ -5,6 +5,14 @@
 function closeModal() { $('#modalBg').classList.remove('show'); }
 function openModal(html) { $('#modal').innerHTML = html; $('#modalBg').classList.add('show'); }
 
+/* 即時把平方公尺換算成坪，顯示在指定的提示元素 */
+function updatePing(input, hintId) {
+  const v = parseFloat(input.value);
+  const el = document.getElementById(hintId);
+  if (!el) return;
+  el.textContent = (v && v > 0) ? `≈ ${(v * 0.3025).toFixed(2)} 坪` : '輸入後自動換算坪數';
+}
+
 function selectOptions(group, current) {
   return ENUMS[group].map(([v,l]) => `<option value="${v}" ${v===current?'selected':''}>${l}</option>`).join('');
 }
@@ -37,11 +45,17 @@ function openLandForm(id) {
       ${fieldText('section_name','段/小段',r.section_name,{ph:'大安段三小段'})}
       ${fieldText('land_number','地號',r.land_number,{req:true,ph:'0512-0000'})}
       ${fieldText('title_deed_number','權狀字號',r.title_deed_number,{full:true})}
-      ${fieldSelect('land_category','使用分區/地目','land_category',r.land_category)}
-      ${fieldText('zoning','都市計畫分區',r.zoning,{ph:'第三種住宅區'})}
+      ${fieldSelect('land_category','地目（權狀上的字）','land_category',r.land_category)}
+      ${fieldText('zoning','使用分區（都市計畫）',r.zoning,{ph:'第三種住宅區（無則免填）'})}
+      ${fieldText('land_grade','等則（農地地價等級，無則免填）',r.land_grade,{ph:'例：19'})}
+      <div class="field"></div>
 
       <div class="section-label">面積與持分</div>
-      ${fieldText('total_area_sqm','地號總面積㎡',r.total_area_sqm,{type:'number'})}
+      <div class="field">
+        <label>地號總面積㎡</label>
+        <input name="total_area_sqm" type="number" value="${esc(r.total_area_sqm)}" oninput="updatePing(this,'ping_total')">
+        <div class="hint" id="ping_total" style="color:var(--accent);font-weight:600">${r.total_area_sqm?'≈ '+sqm2ping(r.total_area_sqm)+' 坪':'輸入後自動換算坪數'}</div>
+      </div>
       <div class="field"></div>
       ${fieldText('share_numerator','持分分子',r.share_numerator,{type:'number',ph:'完整持有填同分母'})}
       ${fieldText('share_denominator','持分分母',r.share_denominator,{type:'number'})}
@@ -71,7 +85,7 @@ function openLandForm(id) {
 function saveLand(id) {
   const f = readForm();
   if (!f.land_number) { toast('地號為必填', true); return; }
-  const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
+  const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','land_grade','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
   if (id) {
     run(`UPDATE lands SET ${cols.map(c=>c+'=?').join(',')}, updated_at=? WHERE land_id=?`, [...vals, now(), id]);
@@ -114,7 +128,11 @@ function openBuildingForm(id) {
       ${fieldText('main_area_sqm','主建物㎡',r.main_area_sqm,{type:'number'})}
       ${fieldText('auxiliary_area_sqm','附屬建物㎡',r.auxiliary_area_sqm,{type:'number',hint:'陽台、雨遮'})}
       ${fieldText('common_area_sqm','共有部分㎡',r.common_area_sqm,{type:'number',hint:'公設'})}
-      ${fieldText('total_registered_area_sqm','權狀總登記㎡',r.total_registered_area_sqm,{type:'number'})}
+      <div class="field">
+        <label>權狀總登記㎡</label>
+        <input name="total_registered_area_sqm" type="number" value="${esc(r.total_registered_area_sqm)}" oninput="updatePing(this,'ping_bld_total')">
+        <div class="hint" id="ping_bld_total" style="color:var(--accent);font-weight:600">${r.total_registered_area_sqm?'≈ '+sqm2ping(r.total_registered_area_sqm)+' 坪':'輸入後自動換算坪數'}</div>
+      </div>
       ${fieldText('share_numerator','共有持分分子',r.share_numerator,{type:'number'})}
       ${fieldText('share_denominator','共有持分分母',r.share_denominator,{type:'number'})}
 
@@ -179,7 +197,7 @@ function openDeedDetail(type, id) {
     add('地號', `<span class="mono">${esc(r.land_number)}</span>`);
     add('權狀字號', `<span class="mono">${esc(r.title_deed_number)||'—'}</span>`);
     add('地段', esc(r.section_name)||'—');
-    add('使用分區', enumLabel('land_category',r.land_category));
+    add('地目', enumLabel('land_category',r.land_category) + (r.land_grade?` · ${esc(r.land_grade)}等則`:''));
     add('總面積', `<span class="mono">${fmt(r.total_area_sqm)} ㎡（${sqm2ping(r.total_area_sqm)} 坪）</span>`);
     add('持分', (r.share_numerator&&r.share_denominator)?`<span class="mono">${r.share_numerator}/${r.share_denominator}</span>`:'—');
     add('公告現值/㎡', `<span class="mono">${fmt(r.announced_value_per_sqm)}</span>`);
@@ -263,9 +281,9 @@ function seedData() {
   }
   const t = now();
   // 三筆土地（公寓基地持分）
-  [['0512-0000','大安段三小段','residential',486.30,152,10000,328000,'2019-03-15','purchase',null],
-   ['0513-0000','大安段三小段','residential',312.55,152,10000,328000,'2019-03-15','purchase',null],
-   ['0145-0000','中壢中央段','construction',330.00,1,1,null,'2018-04-12','purchase',9800000]
+  [['0512-0000','大安段三小段','建',486.30,152,10000,328000,'2019-03-15','purchase',null],
+   ['0513-0000','大安段三小段','建',312.55,152,10000,328000,'2019-03-15','purchase',null],
+   ['0145-0000','中壢中央段','建',330.00,1,1,null,'2018-04-12','purchase',9800000]
   ].forEach(d => {
     run(`INSERT INTO lands (land_number,section_name,land_category,total_area_sqm,share_numerator,share_denominator,announced_value_per_sqm,acquired_at,acquisition_type,acquisition_cost,county,district,lifecycle_status,deed_physical_location,has_mortgage,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'held',?,?,?,?)`,
