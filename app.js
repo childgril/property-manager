@@ -453,18 +453,22 @@ function renderLandList() {
   if (rows.length === 0) {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無土地權狀${landSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openLandForm()">+ 新增第一筆</button></div></div>`;
   } else {
-    html += `<div class="card"><table>
-      <thead><tr><th>地號</th><th>地段</th><th>地目</th><th class="right">面積㎡</th><th>持分</th><th>取得日</th><th>狀態</th><th></th></tr></thead><tbody>`;
+    html += `<div class="card" style="overflow-x:auto"><table>
+      <thead><tr><th>權狀正本位置</th><th>地號</th><th>地段</th><th>地目</th><th class="right">面積㎡</th><th class="right">坪數</th><th class="right">取得成本</th><th>持分</th><th>取得日</th><th>狀態</th><th>抵押</th><th></th></tr></thead><tbody>`;
     rows.forEach(r => {
       const share = (r.share_numerator && r.share_denominator) ? `${r.share_numerator}/${r.share_denominator}` : '—';
       html += `<tr class="clickable" onclick="openDeedDetail('land',${r.land_id})">
+        <td>${esc(r.deed_physical_location)||'—'}</td>
         <td class="mono">${esc(r.land_number)}</td>
         <td>${esc(r.section_name)||'—'}</td>
         <td>${enumLabel('land_category',r.land_category)}</td>
         <td class="mono right">${fmt(r.total_area_sqm)}</td>
+        <td class="mono right">${sqm2ping(r.total_area_sqm)}</td>
+        <td class="mono right">${fmt(r.acquisition_cost)}</td>
         <td class="mono">${share}</td>
         <td class="mono">${rocShort(r.acquired_at)}</td>
         <td><span class="badge ${r.lifecycle_status}">${enumLabel('land_status',r.lifecycle_status)}</span></td>
+        <td>${r.has_mortgage?'有':'無'}</td>
         <td onclick="event.stopPropagation()"><div class="row-actions">
           <button class="icon-btn" onclick="openLandForm(${r.land_id})">編輯</button>
           <button class="icon-btn del" onclick="deleteLand(${r.land_id})">刪除</button>
