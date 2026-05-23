@@ -285,5 +285,36 @@ function seedData() {
   run("INSERT INTO deed_events (deed_type,deed_id,event_date,event_kind,description,amount,created_at) VALUES ('building',?,?,?,?,?,?)",[bld1,'2019-05-20','improvement','裝潢',850000,t]);
   run("INSERT INTO deed_events (deed_type,deed_id,event_date,event_kind,description,amount,created_at) VALUES ('building',?,?,?,?,?,?)",[bld1,'2024-11-03','improvement','浴室翻新',120000,t]);
 
+  // 物件：把大安路的權狀組成一個物件
+  run(`INSERT INTO properties (property_code,name,door_address,property_type,usage_type,current_status,owner_name,created_at,updated_at)
+    VALUES ('P-0001','大安路A棟5F','台北市大安區大安路一段××號5樓','land_and_building','residential','rented','老闆',?,?)`,[t,t]);
+  const prop1 = query("SELECT property_id FROM properties WHERE property_code='P-0001'")[0].property_id;
+  // 指派 0512、0513 兩筆土地 + 02841 建物到此物件
+  ['0512-0000','0513-0000'].forEach(num => {
+    const lid = query("SELECT land_id FROM lands WHERE land_number=?",[num])[0];
+    if (lid) run("INSERT INTO deed_assignments (property_id,deed_type,land_id,start_date,is_current,created_at) VALUES (?,?,?,?,1,?)",[prop1,'land',lid.land_id,'2019-03-15',t]);
+  });
+  run("INSERT INTO deed_assignments (property_id,deed_type,building_id,start_date,is_current,created_at) VALUES (?,?,?,?,1,?)",[prop1,'building',bld1,'2019-03-15',t]);
+
+  // 買賣交易：2019 買進，含金流
+  run(`INSERT INTO transactions (property_id,transaction_type,transaction_status,counterparty_name,broker_name,broker_fee,lawyer_name,agreed_price,contracted_at,title_transferred_at,handover_at,created_at,updated_at)
+    VALUES (?,'purchase','completed','賣方陳先生','大誠房屋',436000,'王代書',21800000,'2019-02-10','2019-03-15','2019-04-01',?,?)`,[prop1,t,t]);
+  const txn1 = query("SELECT transaction_id FROM transactions WHERE property_id=?",[prop1])[0].transaction_id;
+  [['2019-02-10','out','deposit',2180000,'賣方陳先生'],
+   ['2019-03-01','out','second_payment',2180000,'賣方陳先生'],
+   ['2019-03-15','out','deed_tax',95000,'稅捐處'],
+   ['2019-03-15','out','lawyer_fee',45000,'王代書'],
+   ['2019-04-01','out','final_payment',17440000,'賣方陳先生'],
+   ['2019-04-01','out','broker_fee',436000,'大誠房屋']
+  ].forEach(c => run("INSERT INTO cashflows (transaction_id,property_id,flow_date,direction,category,amount,counterparty,created_at) VALUES (?,?,?,?,?,?,?,?)",[txn1,prop1,c[0],c[1],c[2],c[3],c[4],t]));
+
+  // 貸款：合庫房貸 + 兩期繳款
+  run(`INSERT INTO loans (property_id,loan_code,collateral_scope,bank_name,branch,loan_type,approved_amount,approved_ratio,interest_rate,rate_type,base_rate_name,rate_adjustment,term_months,grace_period_months,current_principal,repayment_method,repayment_day,mortgage_amount,disbursed_at,grace_period_end_at,maturity_at,status,created_at,updated_at)
+    VALUES (?,'L-0001','land_and_building','合作金庫','大安分行','mortgage',15000000,70,2.15,'floating','郵儲二年期',0.59,360,36,11200000,'equal_payment',5,18000000,'2019-03-15','2022-03-15','2049-03-15','active',?,?)`,[prop1,t,t]);
+  const loan1 = query("SELECT loan_id FROM loans WHERE loan_code='L-0001'")[0].loan_id;
+  [[82,'2026-04-05',42710,20130,62840,11242710,'paid'],
+   [83,'2026-05-05',42786,20054,62840,11199924,'paid']
+  ].forEach(p => run("INSERT INTO loan_payments (loan_id,period_no,due_date,principal_amount,interest_amount,total_amount,principal_balance_after,payment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?)",[loan1,p[0],p[1],p[2],p[3],p[4],p[5],p[6],t]));
+
   autoSave(); toast('已載入範例資料'); showPage('dashboard');
 }

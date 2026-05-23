@@ -52,6 +52,85 @@ CREATE TABLE IF NOT EXISTS deed_events (
   event_date TEXT, event_kind TEXT, description TEXT, amount REAL,
   created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS properties (
+  property_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_code TEXT,
+  name TEXT,
+  door_address TEXT,
+  property_type TEXT,
+  usage_type TEXT,
+  current_status TEXT DEFAULT 'self_use',
+  owner_name TEXT,
+  notes TEXT,
+  created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS deed_assignments (
+  assignment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id INTEGER,
+  deed_type TEXT, land_id INTEGER, building_id INTEGER,
+  start_date TEXT, end_date TEXT, is_current INTEGER DEFAULT 1,
+  notes TEXT, created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS transactions (
+  transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id INTEGER,
+  transaction_type TEXT,
+  transaction_status TEXT DEFAULT 'negotiating',
+  counterparty_name TEXT,
+  broker_name TEXT, broker_fee REAL,
+  lawyer_name TEXT,
+  agreed_price REAL,
+  first_viewed_at TEXT, contracted_at TEXT, sealed_at TEXT,
+  title_transferred_at TEXT, handover_at TEXT,
+  special_terms TEXT, notes TEXT,
+  created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS cashflows (
+  cashflow_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id INTEGER,
+  property_id INTEGER,
+  flow_date TEXT,
+  direction TEXT,
+  category TEXT,
+  amount REAL,
+  counterparty TEXT,
+  payment_method TEXT,
+  receipt_location TEXT,
+  notes TEXT,
+  created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS loans (
+  loan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  loan_code TEXT,
+  property_id INTEGER,
+  collateral_scope TEXT,
+  bank_name TEXT, branch TEXT, contact_person TEXT,
+  loan_type TEXT, purpose TEXT,
+  applied_at TEXT, appraisal_amount REAL,
+  approved_amount REAL, approved_ratio REAL,
+  interest_rate REAL, rate_type TEXT, base_rate_name TEXT, rate_adjustment REAL,
+  term_months INTEGER, grace_period_months INTEGER,
+  mortgage_amount REAL, mortgage_registered_at TEXT, lien_certificate_no TEXT,
+  disbursed_at TEXT,
+  repayment_method TEXT, repayment_day INTEGER, auto_debit_account TEXT,
+  grace_period_end_at TEXT, rate_reset_at TEXT, lockup_end_at TEXT, maturity_at TEXT,
+  status TEXT DEFAULT 'active', current_principal REAL,
+  closed_at TEXT, close_reason TEXT, early_termination_fee REAL,
+  origination_fee REAL,
+  notes TEXT,
+  created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS loan_payments (
+  payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  loan_id INTEGER,
+  period_no INTEGER,
+  due_date TEXT, paid_date TEXT,
+  principal_amount REAL, interest_amount REAL, total_amount REAL,
+  principal_balance_after REAL,
+  payment_status TEXT DEFAULT 'scheduled',
+  notes TEXT,
+  created_at TEXT
+);
 `;
 
 /* ---------- 列舉值（下拉選單用） ---------- */
@@ -65,6 +144,25 @@ const ENUMS = {
   building_disposal: [['sale','出售'],['demolition','拆除滅失'],['expropriation','徵收']],
   building_status: [['held','持有中'],['sold','已售出'],['demolished','已滅失']],
   event_kind: [['acquire','取得'],['mortgage','設定抵押'],['release','塗銷抵押'],['improvement','改良'],['holding','持有費用'],['valuation','估價'],['split','分割'],['merge','合併'],['disposal','處分'],['other','其他']],
+  property_type: [['land','純土地'],['building','純建物'],['land_and_building','土地+建物'],['parking','車位']],
+  usage_type: [['residential','住宅'],['commercial','商業'],['mixed','住商混合'],['industrial','工業'],['agricultural','農業']],
+  property_status: [['self_use','自用'],['rented','出租中'],['vacant','閒置'],['for_sale','出售中'],['sold','已售出']],
+  txn_type: [['purchase','買進'],['sale','出售']],
+  txn_status: [['evaluating','評估中'],['negotiating','議價中'],['contracted','已簽約'],['closing','過戶完稅中'],['completed','已完成'],['cancelled','取消']],
+  flow_direction: [['in','收入'],['out','支出']],
+  flow_category: [
+    ['deposit','訂金'],['second_payment','第二期款'],['final_payment','尾款'],['full_payment','全額價金'],
+    ['deed_tax','契稅'],['stamp_duty','印花稅'],['land_increment_tax','土地增值稅'],['housing_tax','房地合一稅'],
+    ['broker_fee','仲介費'],['lawyer_fee','代書費'],['registration_fee','規費'],
+    ['loan_disbursement','貸款撥款'],['loan_payoff','清償貸款'],['other','其他']
+  ],
+  payment_method: [['bank_transfer','轉帳'],['cash','現金'],['check','支票'],['atm','ATM'],['履約保證','履約保證專戶']],
+  loan_type: [['mortgage','購屋貸款'],['second_mortgage','二胎'],['refinance','轉貸'],['increase','增貸'],['business','企業戶'],['working_capital','週轉']],
+  collateral_scope: [['land_only','僅土地'],['building_only','僅建物'],['land_and_building','土地建物一併'],['multiple','跨多物件']],
+  rate_type: [['floating','指數型'],['fixed','固定'],['hybrid','混合']],
+  repayment_method: [['equal_payment','本息均攤'],['equal_principal','本金均攤'],['interest_only','僅付息']],
+  loan_status: [['active','還款中'],['paid_off','已清償'],['refinanced','已轉貸'],['defaulted','違約']],
+  pay_status: [['scheduled','未繳'],['paid','已繳'],['late','遲繳'],['partial','部分'],['skipped','跳過']],
 };
 function enumLabel(group, val) {
   const f = (ENUMS[group]||[]).find(e => e[0] === val);
@@ -148,7 +246,7 @@ function bindUI() {
   });
 }
 
-const CRUMB = { dashboard:'總覽', lands:'土地權狀', buildings:'建物權狀', deedDetail:'權狀明細' };
+const CRUMB = { dashboard:'總覽', lands:'土地權狀', buildings:'建物權狀', deedDetail:'權狀明細', properties:'不動產物件', propDetail:'物件明細', transactions:'買賣交易', txnDetail:'交易明細', loans:'銀行借貸', loanDetail:'貸款明細' };
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === id));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === id));
@@ -156,6 +254,9 @@ function showPage(id) {
   if (id === 'dashboard') renderDashboard();
   if (id === 'lands') renderLandList();
   if (id === 'buildings') renderBuildingList();
+  if (id === 'properties') renderPropertyList();
+  if (id === 'transactions') renderTxnList();
+  if (id === 'loans') renderLoanList();
   window.scrollTo(0,0);
 }
 
@@ -199,14 +300,20 @@ function renderDashboard() {
   const bldHeld = query("SELECT COUNT(*) c FROM buildings WHERE lifecycle_status='held'")[0].c;
   const landCost = query("SELECT COALESCE(SUM(acquisition_cost),0) s FROM lands WHERE lifecycle_status='held'")[0].s;
   const bldCost = query("SELECT COALESCE(SUM(acquisition_cost),0) s FROM buildings WHERE lifecycle_status='held'")[0].s;
+  const propTotal = query("SELECT COUNT(*) c FROM properties")[0].c;
+  const loanActive = query("SELECT COUNT(*) c FROM loans WHERE status='active'")[0].c;
+  const loanBalance = query("SELECT COALESCE(SUM(current_principal),0) s FROM loans WHERE status='active'")[0].s;
+  const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">權狀管理系統第一版 · 資料儲存在你的本機</div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機</div>
     <div class="stats">
       <div class="stat"><div class="label">土地權狀</div><div class="value" style="color:var(--land)">${landTotal}</div><div class="page-desc" style="margin:4px 0 0">持有中 ${landHeld}</div></div>
       <div class="stat"><div class="label">建物權狀</div><div class="value" style="color:var(--building)">${bldTotal}</div><div class="page-desc" style="margin:4px 0 0">持有中 ${bldHeld}</div></div>
-      <div class="stat"><div class="label">土地取得成本（持有中）</div><div class="value" style="font-size:18px">${fmt(landCost)}</div></div>
-      <div class="stat"><div class="label">建物取得成本（持有中）</div><div class="value" style="font-size:18px">${fmt(bldCost)}</div></div>
+      <div class="stat"><div class="label">不動產物件</div><div class="value">${propTotal}</div></div>
+      <div class="stat"><div class="label">進行中交易</div><div class="value">${txnOpen}</div></div>
+      <div class="stat"><div class="label">活躍貸款</div><div class="value">${loanActive}</div></div>
+      <div class="stat"><div class="label">貸款餘額</div><div class="value" style="font-size:18px">${fmt(loanBalance)}</div></div>
     </div>`;
 
   if (landTotal === 0 && bldTotal === 0) {
