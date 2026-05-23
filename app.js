@@ -225,6 +225,43 @@ function query(sql, params=[]) {
 function run(sql, params=[]) { db.run(sql, params); markDirty(); }
 
 /* ---------- 初始化 ---------- */
+/* 自動升級資料庫結構：補上舊 .db 缺少的欄位
+   這樣不管載入多舊的資料檔，都會自動補齊，不會再出現 "no column" 錯誤 */
+function migrate() {
+  // 每張表「應該有」的欄位與型別（只列後來新增的，缺了就補）
+  const expected = {
+    lands: {
+      deed_code:'TEXT', land_grade:'TEXT', zoning:'TEXT', parent_land_id:'INTEGER',
+      announced_value_date:'TEXT', other_rights_notes:'TEXT', disposal_type:'TEXT'
+    },
+    buildings: {
+      deed_code:'TEXT', other_rights_notes:'TEXT', disposal_type:'TEXT'
+    },
+    loans: {
+      collateral_scope:'TEXT', branch:'TEXT', contact_person:'TEXT', base_rate_name:'TEXT',
+      rate_adjustment:'REAL', lien_certificate_no:'TEXT', auto_debit_account:'TEXT',
+      grace_period_end_at:'TEXT', rate_reset_at:'TEXT', lockup_end_at:'TEXT',
+      close_reason:'TEXT', early_termination_fee:'REAL'
+    }
+  };
+  for (const table in expected) {
+    // 先確認表存在
+    let cols;
+    try {
+      cols = query(`PRAGMA table_info(${table})`).map(c => c.name);
+    } catch(e) { continue; } // 表不存在就跳過（SCHEMA 會建）
+    if (!cols.length) continue;
+    for (const col in expected[table]) {
+      if (!cols.includes(col)) {
+        try {
+          db.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${expected[table][col]}`);
+          console.log(`已補欄位 ${table}.${col}`);
+        } catch(e) { /* 已存在或其他，忽略 */ }
+      }
+    }
+  }
+}
+
 async function boot() {
   try {
     SQL = await initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}` });
@@ -238,6 +275,7 @@ async function boot() {
       db.run(SCHEMA);
     }
     db.run(SCHEMA); // 確保表存在
+    migrate();      // 自動補上舊資料檔缺少的欄位
     $('#boot').style.display = 'none';
     $('#app').style.display = 'flex';
     bindUI();
@@ -311,6 +349,7 @@ function loadFromFile(e) {
     try {
       db = new SQL.Database(new Uint8Array(reader.result));
       db.run(SCHEMA);
+      migrate();   // 載入舊檔也自動補欄位
       markClean(); toast('已載入：' + file.name);
       showPage('dashboard');
     } catch (err) { toast('載入失敗：' + err.message, true); }
