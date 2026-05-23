@@ -19,13 +19,13 @@ function fieldRocDate(name, label, westValue, opts={}) {
   const roc = westToRoc(westValue);
   return `<div class="field ${opts.full?'full':''}">
     <label>${label}（民國年）${opts.req?' <span class="req">*</span>':''}</label>
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="color:var(--text-dim)">民國</span>
-      <input data-roc="${name}" data-part="y" type="number" value="${roc.y}" placeholder="108" style="width:70px" oninput="updateRocWest('${name}')">
+      <input data-roc="${name}" data-part="y" type="number" value="${roc.y}" placeholder="108" style="width:90px;text-align:center" oninput="updateRocWest('${name}')">
       <span style="color:var(--text-dim)">年</span>
-      <input data-roc="${name}" data-part="m" type="number" value="${roc.m}" placeholder="3" style="width:55px" oninput="updateRocWest('${name}')">
+      <input data-roc="${name}" data-part="m" type="number" value="${roc.m}" placeholder="3" style="width:72px;text-align:center" oninput="updateRocWest('${name}')">
       <span style="color:var(--text-dim)">月</span>
-      <input data-roc="${name}" data-part="d" type="number" value="${roc.d}" placeholder="15" style="width:55px" oninput="updateRocWest('${name}')">
+      <input data-roc="${name}" data-part="d" type="number" value="${roc.d}" placeholder="15" style="width:72px;text-align:center" oninput="updateRocWest('${name}')">
       <span style="color:var(--text-dim)">日</span>
       <span id="west_${name}" style="color:var(--accent);font-weight:600;white-space:nowrap;margin-left:6px">${westValue?'= 西元'+westValue:''}</span>
     </div>
