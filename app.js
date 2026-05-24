@@ -497,7 +497,7 @@ function setLandSort(c) {
 /* ============================================================
    建物權狀：列表
    ============================================================ */
-let bldFilter = 'all', bldSearch = '', bldSort = 'building_number', bldSortDir = 'ASC';
+let bldFilter = 'all', bldSearch = '', bldSort = 'deed_physical_location', bldSortDir = 'ASC';
 function renderBuildingList() {
   let sql = "SELECT * FROM buildings";
   const where = [];
@@ -505,8 +505,8 @@ function renderBuildingList() {
   if (bldFilter === 'disposed') where.push("lifecycle_status IN ('sold','demolished')");
   if (bldSearch) where.push(`(building_number LIKE '%${bldSearch}%' OR door_address LIKE '%${bldSearch}%' OR title_deed_number LIKE '%${bldSearch}%')`);
   if (where.length) sql += " WHERE " + where.join(" AND ");
-  const sortMap = { building_number:'building_number', door_address:'door_address', building_type:'building_type', main_area_sqm:'main_area_sqm', total_registered_area_sqm:'total_registered_area_sqm', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
-  const col = sortMap[bldSort] || 'building_number';
+  const sortMap = { deed_physical_location:'deed_physical_location', title_deed_number:'title_deed_number', door_address:'door_address', building_number:'building_number', main_area_sqm:'main_area_sqm', auxiliary_area_sqm:'auxiliary_area_sqm', total_registered_area_sqm:'total_registered_area_sqm', acquisition_cost:'acquisition_cost', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
+  const col = sortMap[bldSort] || 'deed_physical_location';
   sql += ` ORDER BY ${col} ${bldSortDir==='ASC'?'ASC':'DESC'}`;
   const rows = query(sql);
 
@@ -527,16 +527,22 @@ function renderBuildingList() {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無建物權狀${bldSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openBuildingForm()">+ 新增第一筆</button></div></div>`;
   } else {
     html += `<div class="card" style="overflow-x:auto"><table>
-      <thead><tr>${th('建號','building_number')}${th('門牌','door_address')}${th('型態','building_type')}${th('主建物㎡','main_area_sqm','right')}${th('總登記㎡','total_registered_area_sqm','right')}${th('取得日','acquired_at')}${th('狀態','lifecycle_status')}<th></th></tr></thead><tbody>`;
+      <thead><tr>${th('權狀正本位置','deed_physical_location')}${th('權狀字號','title_deed_number')}${th('門牌','door_address')}${th('建號','building_number')}${th('主建物㎡','main_area_sqm','right')}${th('附屬建物㎡','auxiliary_area_sqm','right')}${th('權狀總登記㎡','total_registered_area_sqm','right')}${th('取得成本','acquisition_cost','right')}<th>持分</th>${th('取得日','acquired_at')}${th('狀態','lifecycle_status')}<th>抵押</th><th></th></tr></thead><tbody>`;
     rows.forEach(r => {
+      const share = (r.share_numerator && r.share_denominator) ? `${r.share_numerator}/${r.share_denominator}` : '全部';
       html += `<tr class="clickable" onclick="openDeedDetail('building',${r.building_id})">
-        <td class="mono">${esc(r.building_number)}</td>
+        <td>${esc(r.deed_physical_location)||'—'}</td>
+        <td class="mono">${esc(r.title_deed_number)||'—'}</td>
         <td>${esc(r.door_address)||'—'}</td>
-        <td>${enumLabel('building_type',r.building_type)}</td>
+        <td class="mono">${esc(r.building_number)}</td>
         <td class="mono right">${fmt(r.main_area_sqm)}</td>
+        <td class="mono right">${fmt(r.auxiliary_area_sqm)}</td>
         <td class="mono right">${fmt(r.total_registered_area_sqm)}</td>
+        <td class="mono right">${fmt(r.acquisition_cost)}</td>
+        <td class="mono">${share}</td>
         <td class="mono">${rocShort(r.acquired_at)}</td>
         <td><span class="badge ${r.lifecycle_status}">${enumLabel('building_status',r.lifecycle_status)}</span></td>
+        <td>${r.has_mortgage?'有':'無'}</td>
         <td onclick="event.stopPropagation()"><div class="row-actions">
           <button class="icon-btn" onclick="openBuildingForm(${r.building_id})">編輯</button>
           <button class="icon-btn del" onclick="deleteBuilding(${r.building_id})">刪除</button>
