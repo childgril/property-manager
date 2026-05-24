@@ -166,11 +166,10 @@ function openBuildingForm(id) {
       ${fieldText('floor_located','所在層次',r.floor_located,{ph:'五層'})}
       ${fieldRocDate('completion_date','建築完成日',r.completion_date,{hint:'影響屋齡'})}
       ${fieldText('usage_registered','登記用途',r.usage_registered,{ph:'住家用'})}
+      ${fieldText('located_land_numbers','坐落地號',r.located_land_numbers,{full:true,ph:'例：石壁段0819，多筆用逗號分隔',hint:'建物坐落在哪筆土地。會自動串聯到不動產物件'})}
 
       <div class="section-label">面積</div>
       ${fieldText('main_area_sqm','主建物㎡',r.main_area_sqm,{type:'number'})}
-      ${fieldText('auxiliary_area_sqm','附屬建物㎡',r.auxiliary_area_sqm,{type:'number',hint:'陽台、雨遮'})}
-      ${fieldText('common_area_sqm','共有部分㎡',r.common_area_sqm,{type:'number',hint:'公設'})}
       <div class="field">
         <label>權狀總登記㎡</label>
         <div style="display:flex;align-items:center;gap:10px">
@@ -178,8 +177,18 @@ function openBuildingForm(id) {
           <span id="ping_bld_total" style="color:var(--accent);font-weight:600;white-space:nowrap;min-width:80px">${r.total_registered_area_sqm?'≈ '+sqm2ping(r.total_registered_area_sqm)+' 坪':''}</span>
         </div>
       </div>
-      ${fieldText('share_numerator','共有持分分子',r.share_numerator,{type:'number'})}
-      ${fieldText('share_denominator','共有持分分母',r.share_denominator,{type:'number'})}
+
+      <div class="section-label">權利範圍（主建物持分）</div>
+      ${fieldText('share_numerator','持分分子',r.share_numerator,{type:'number',ph:'不填=全部'})}
+      ${fieldText('share_denominator','持分分母',r.share_denominator,{type:'number',ph:'不填=全部'})}
+
+      <div class="section-label">附屬建物（陽台、雨遮等，可多筆）</div>
+      <div class="field full"><div id="auxList"></div>
+        <button type="button" class="btn ghost" style="margin-top:6px" onclick="addAuxRow()">+ 新增附屬建物</button></div>
+
+      <div class="section-label">共同使用部分（可多筆）</div>
+      <div class="field full"><div id="commonList"></div>
+        <button type="button" class="btn ghost" style="margin-top:6px" onclick="addCommonRow()">+ 新增共同使用部分</button></div>
 
       <div class="section-label">生命週期</div>
       ${fieldRocDate('acquired_at','取得日',r.acquired_at,{hint:'自地自建為保存登記日'})}
@@ -199,7 +208,54 @@ function openBuildingForm(id) {
       <div><button class="btn ghost" onclick="closeModal()">取消</button>
       <button class="btn" onclick="saveBuilding(${id||0})">儲存</button></div>
     </div>`);
+  // 載入既有的附屬建物與共同使用部分（編輯時）
+  auxRows = id ? query("SELECT * FROM building_auxiliaries WHERE building_id=?", [id]).map(a => ({aux_type:a.aux_type, area_sqm:a.area_sqm, share_numerator:a.share_numerator, share_denominator:a.share_denominator})) : [];
+  commonRows = id ? query("SELECT * FROM common_areas WHERE building_id=?", [id]).map(c => ({section_name:c.section_name, common_building_number:c.common_building_number, area_sqm:c.area_sqm, share_numerator:c.share_numerator, share_denominator:c.share_denominator})) : [];
+  renderAuxList();
+  renderCommonList();
 }
+
+/* ===== 附屬建物 / 共同使用部分 的動態清單 ===== */
+let auxRows = [], commonRows = [];
+
+function renderAuxList() {
+  const box = document.getElementById('auxList');
+  if (!box) return;
+  if (!auxRows.length) { box.innerHTML = '<div style="color:var(--text-dim);font-size:14px;padding:4px 0">尚無附屬建物</div>'; return; }
+  box.innerHTML = auxRows.map((a,i) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <select onchange="auxRows[${i}].aux_type=this.value" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+        ${ENUMS.aux_type.map(([v,l])=>`<option value="${v}" ${a.aux_type===v?'selected':''}>${l}</option>`).join('')}
+      </select>
+      <input type="number" placeholder="面積㎡" value="${a.area_sqm??''}" oninput="auxRows[${i}].area_sqm=this.value" style="width:100px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+      <span style="color:var(--text-dim);font-size:14px">權利範圍</span>
+      <input type="number" placeholder="分子" value="${a.share_numerator??''}" oninput="auxRows[${i}].share_numerator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
+      <span style="color:var(--text-dim)">/</span>
+      <input type="number" placeholder="分母" value="${a.share_denominator??''}" oninput="auxRows[${i}].share_denominator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
+      <button type="button" class="icon-btn del" onclick="removeAuxRow(${i})">刪除</button>
+    </div>`).join('');
+}
+function addAuxRow() { auxRows.push({aux_type:'balcony', area_sqm:'', share_numerator:'', share_denominator:''}); renderAuxList(); }
+function removeAuxRow(i) { auxRows.splice(i,1); renderAuxList(); }
+
+function renderCommonList() {
+  const box = document.getElementById('commonList');
+  if (!box) return;
+  if (!commonRows.length) { box.innerHTML = '<div style="color:var(--text-dim);font-size:14px;padding:4px 0">尚無共同使用部分</div>'; return; }
+  box.innerHTML = commonRows.map((c,i) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <input placeholder="段" value="${esc(c.section_name)??''}" oninput="commonRows[${i}].section_name=this.value" style="width:120px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+      <input placeholder="建號" value="${esc(c.common_building_number)??''}" oninput="commonRows[${i}].common_building_number=this.value" style="width:130px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+      <input type="number" placeholder="面積㎡" value="${c.area_sqm??''}" oninput="commonRows[${i}].area_sqm=this.value" style="width:100px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+      <span style="color:var(--text-dim);font-size:14px">權利範圍</span>
+      <input type="number" placeholder="分子" value="${c.share_numerator??''}" oninput="commonRows[${i}].share_numerator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
+      <span style="color:var(--text-dim)">/</span>
+      <input type="number" placeholder="分母" value="${c.share_denominator??''}" oninput="commonRows[${i}].share_denominator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
+      <button type="button" class="icon-btn del" onclick="removeCommonRow(${i})">刪除</button>
+    </div>`).join('');
+}
+function addCommonRow() { commonRows.push({section_name:'', common_building_number:'', area_sqm:'', share_numerator:'', share_denominator:''}); renderCommonList(); }
+function removeCommonRow(i) { commonRows.splice(i,1); renderCommonList(); }
 function saveBuilding(id) {
   const f = readForm();
   if (!f.building_number) { toast('建號為必填', true); return; }
@@ -207,15 +263,32 @@ function saveBuilding(id) {
   f.completion_date = readRocDate('completion_date');
   f.acquired_at = readRocDate('acquired_at');
   f.disposed_at = readRocDate('disposed_at');
-  const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
+  // 附屬建物面積合計、共有部分面積合計（自動由清單加總）
+  f.auxiliary_area_sqm = auxRows.reduce((s,a)=> s + (parseFloat(a.area_sqm)||0), 0) || null;
+  f.common_area_sqm = commonRows.reduce((s,c)=> s + (parseFloat(c.area_sqm)||0), 0) || null;
+  const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','located_land_numbers','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
+  let bid = id;
   if (id) {
     run(`UPDATE buildings SET ${cols.map(c=>c+'=?').join(',')}, updated_at=? WHERE building_id=?`, [...vals, now(), id]);
     toast('已更新建物權狀');
   } else {
     run(`INSERT INTO buildings (${cols.join(',')},created_at,updated_at) VALUES (${cols.map(()=>'?').join(',')},?,?)`, [...vals, now(), now()]);
+    bid = query("SELECT last_insert_rowid() AS id")[0].id;
     toast('已新增建物權狀');
   }
+  // 重寫附屬建物子表
+  run("DELETE FROM building_auxiliaries WHERE building_id=?", [bid]);
+  auxRows.forEach(a => {
+    if (a.area_sqm || a.aux_type) run("INSERT INTO building_auxiliaries (building_id,aux_type,area_sqm,share_numerator,share_denominator,created_at) VALUES (?,?,?,?,?,?)",
+      [bid, a.aux_type||null, a.area_sqm||null, a.share_numerator||null, a.share_denominator||null, now()]);
+  });
+  // 重寫共同使用部分子表
+  run("DELETE FROM common_areas WHERE building_id=?", [bid]);
+  commonRows.forEach(c => {
+    if (c.section_name || c.common_building_number || c.area_sqm) run("INSERT INTO common_areas (building_id,section_name,common_building_number,area_sqm,share_numerator,share_denominator,created_at) VALUES (?,?,?,?,?,?,?)",
+      [bid, c.section_name||null, c.common_building_number||null, c.area_sqm||null, c.share_numerator||null, c.share_denominator||null, now()]);
+  });
   autoSave(); closeModal(); renderBuildingList();
 }
 function deleteBuilding(id) {
@@ -223,6 +296,8 @@ function deleteBuilding(id) {
   if (!confirm(`確定刪除建物權狀 ${r.building_number}？此動作無法復原。`)) return;
   run("DELETE FROM buildings WHERE building_id=?", [id]);
   run("DELETE FROM deed_events WHERE deed_type='building' AND deed_id=?", [id]);
+  run("DELETE FROM building_auxiliaries WHERE building_id=?", [id]);
+  run("DELETE FROM common_areas WHERE building_id=?", [id]);
   autoSave(); toast('已刪除'); renderBuildingList();
 }
 

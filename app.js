@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS buildings (
   completion_date TEXT, usage_registered TEXT,
   main_area_sqm REAL, auxiliary_area_sqm REAL, common_area_sqm REAL,
   share_numerator INTEGER, share_denominator INTEGER, total_registered_area_sqm REAL,
+  located_land_numbers TEXT,
   has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT,
   deed_physical_location TEXT,
   acquired_at TEXT, acquisition_type TEXT, acquisition_cost REAL,
@@ -45,6 +46,24 @@ CREATE TABLE IF NOT EXISTS buildings (
   lifecycle_status TEXT DEFAULT 'held',
   notes TEXT,
   created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS building_auxiliaries (
+  aux_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  building_id INTEGER,
+  aux_type TEXT,
+  area_sqm REAL,
+  share_numerator INTEGER, share_denominator INTEGER,
+  created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS common_areas (
+  common_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  building_id INTEGER,
+  section_name TEXT,
+  common_building_number TEXT,
+  area_sqm REAL,
+  share_numerator INTEGER, share_denominator INTEGER,
+  notes TEXT,
+  created_at TEXT
 );
 CREATE TABLE IF NOT EXISTS deed_events (
   event_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,6 +161,7 @@ const ENUMS = {
   building_type: [['apartment','公寓'],['elevator_building','電梯大樓'],['townhouse','透天厝'],['suite','套房'],['store','店面'],['office','辦公'],['factory','廠房'],['other','其他']],
   building_acq: [['purchase','買賣'],['self_build','自地自建'],['inheritance','繼承'],['gift','贈與']],
   building_disposal: [['sale','出售'],['gift','贈與'],['demolition','拆除滅失'],['expropriation','徵收']],
+  aux_type: [['balcony','陽台'],['platform','平台'],['canopy','雨遮'],['porch','陽臺'],['other','其他']],
   building_status: [['held','持有中'],['sold','已售出'],['demolished','已滅失']],
   event_kind: [['acquire','取得'],['mortgage','設定抵押'],['release','塗銷抵押'],['improvement','改良'],['holding','持有費用'],['valuation','估價'],['split','分割'],['merge','合併'],['disposal','處分'],['other','其他']],
   property_type: [['land','純土地'],['building','純建物'],['land_and_building','土地+建物'],['parking','車位']],
