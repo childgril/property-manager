@@ -97,8 +97,8 @@ function openLandForm(id) {
         </div>
       </div>
       <div class="field"></div>
-      ${fieldText('share_numerator','持分分子',r.share_numerator,{type:'number',ph:'完整持有填同分母'})}
-      ${fieldText('share_denominator','持分分母',r.share_denominator,{type:'number'})}
+      ${fieldText('share_numerator','持分分子',r.share_numerator,{type:'number',ph:'不填=全部持有'})}
+      ${fieldText('share_denominator','持分分母',r.share_denominator,{type:'number',ph:'不填=全部持有'})}
       ${fieldText('announced_value_per_sqm','公告現值/㎡',r.announced_value_per_sqm,{type:'number',hint:'影響土地增值稅'})}
       ${fieldText('announced_value_date','公告現值年期',r.announced_value_date,{type:'date'})}
 
@@ -250,7 +250,7 @@ function openDeedDetail(type, id) {
     add('面積', `<span class="mono">${fmt(r.total_area_sqm)} ㎡</span>`);
     add('坪數', `<span class="mono">${sqm2ping(r.total_area_sqm)} 坪</span>`);
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
-    add('持分', (r.share_numerator&&r.share_denominator)?`<span class="mono">${r.share_numerator}/${r.share_denominator}</span>`:'—');
+    add('持分', (r.share_numerator&&r.share_denominator)?`<span class="mono">${r.share_numerator}/${r.share_denominator}</span>`:'全部（1/1）');
     add('取得日', rocDate(r.acquired_at));
     add('狀態', `<span class="badge ${r.lifecycle_status}">${enumLabel('land_status',r.lifecycle_status)}</span>`);
     add('是否設定抵押', r.has_mortgage?'已設定':'無');

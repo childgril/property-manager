@@ -429,7 +429,7 @@ function renderDashboard() {
 /* ============================================================
    土地權狀：列表
    ============================================================ */
-let landFilter = 'all', landSearch = '';
+let landFilter = 'all', landSearch = '', landSort = 'deed_physical_location', landSortDir = 'ASC';
 function renderLandList() {
   let sql = "SELECT * FROM lands";
   const where = [];
@@ -437,26 +437,39 @@ function renderLandList() {
   if (landFilter === 'disposed') where.push("lifecycle_status IN ('sold','split','merged')");
   if (landSearch) where.push(`(land_number LIKE '%${landSearch}%' OR section_name LIKE '%${landSearch}%' OR title_deed_number LIKE '%${landSearch}%')`);
   if (where.length) sql += " WHERE " + where.join(" AND ");
-  sql += " ORDER BY land_id DESC";
+  // 排序：文字欄位用 COLLATE 讓地號自然排序
+  const sortMap = { deed_physical_location:'deed_physical_location', land_number:'land_number', section_name:'section_name', land_category:'land_category', total_area_sqm:'total_area_sqm', acquisition_cost:'acquisition_cost', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
+  const col = sortMap[landSort] || 'deed_physical_location';
+  sql += ` ORDER BY ${col} ${landSortDir==='ASC'?'ASC':'DESC'}`;
   const rows = query(sql);
 
+  // 產生可點擊排序的表頭
+  const sortArrow = c => landSort===c ? (landSortDir==='ASC'?' ▲':' ▼') : '';
+  const th = (label, c, cls='') => `<th class="${cls}" style="cursor:pointer;user-select:none" onclick="setLandSort('${c}')">${label}${sortArrow(c)}</th>`;
+
+  // 排序下拉選單
+  const sortOptions = [['deed_physical_location','權狀正本位置'],['land_number','地號'],['section_name','地段'],['land_category','地目'],['total_area_sqm','面積'],['acquisition_cost','取得成本'],['acquired_at','取得日'],['lifecycle_status','狀態']];
+  const sortSelect = `<select class="search" style="width:auto" onchange="setLandSortField(this.value)">${sortOptions.map(([v,l])=>`<option value="${v}" ${landSort===v?'selected':''}>依${l}排序</option>`).join('')}</select>
+    <button class="chip" onclick="toggleLandSortDir()">${landSortDir==='ASC'?'▲ 由小到大':'▼ 由大到小'}</button>`;
+
   let html = `<h2 class="page-title">土地權狀</h2>
-    <div class="page-desc">每筆地號獨立管理 · 各有生命週期</div>
+    <div class="page-desc">每筆地號獨立管理 · 各有生命週期 · 點欄位標題或用下方選單排序</div>
     <div class="toolbar">
       <button class="chip ${landFilter==='all'?'on':''}" onclick="setLandFilter('all')">全部</button>
       <button class="chip ${landFilter==='held'?'on':''}" onclick="setLandFilter('held')">持有中</button>
       <button class="chip ${landFilter==='disposed'?'on':''}" onclick="setLandFilter('disposed')">已處分</button>
       <input class="search" placeholder="搜尋地號 / 地段 / 權狀字號" value="${esc(landSearch)}" oninput="onLandSearch(this.value)">
       <button class="btn" style="margin-left:auto" onclick="openLandForm()">+ 新增土地權狀</button>
-    </div>`;
+    </div>
+    <div class="toolbar">${sortSelect}</div>`;
 
   if (rows.length === 0) {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無土地權狀${landSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openLandForm()">+ 新增第一筆</button></div></div>`;
   } else {
     html += `<div class="card" style="overflow-x:auto"><table>
-      <thead><tr><th>權狀正本位置</th><th>地號</th><th>地段</th><th>地目</th><th class="right">面積㎡</th><th class="right">坪數</th><th class="right">取得成本</th><th>持分</th><th>取得日</th><th>狀態</th><th>抵押</th><th></th></tr></thead><tbody>`;
+      <thead><tr>${th('權狀正本位置','deed_physical_location')}${th('地號','land_number')}${th('地段','section_name')}${th('地目','land_category')}${th('面積㎡','total_area_sqm','right')}<th class="right">坪數</th>${th('取得成本','acquisition_cost','right')}<th>持分</th>${th('取得日','acquired_at')}${th('狀態','lifecycle_status')}<th>抵押</th><th></th></tr></thead><tbody>`;
     rows.forEach(r => {
-      const share = (r.share_numerator && r.share_denominator) ? `${r.share_numerator}/${r.share_denominator}` : '—';
+      const share = (r.share_numerator && r.share_denominator) ? `${r.share_numerator}/${r.share_denominator}` : '全部';
       html += `<tr class="clickable" onclick="openDeedDetail('land',${r.land_id})">
         <td>${esc(r.deed_physical_location)||'—'}</td>
         <td class="mono">${esc(r.land_number)}</td>
@@ -480,11 +493,18 @@ function renderLandList() {
 }
 function setLandFilter(f) { landFilter = f; renderLandList(); }
 function onLandSearch(v) { landSearch = v.replace(/'/g,''); renderLandList(); }
+function setLandSort(c) {
+  if (landSort === c) { landSortDir = landSortDir === 'ASC' ? 'DESC' : 'ASC'; }
+  else { landSort = c; landSortDir = 'ASC'; }
+  renderLandList();
+}
+function setLandSortField(c) { landSort = c; renderLandList(); }
+function toggleLandSortDir() { landSortDir = landSortDir === 'ASC' ? 'DESC' : 'ASC'; renderLandList(); }
 
 /* ============================================================
    建物權狀：列表
    ============================================================ */
-let bldFilter = 'all', bldSearch = '';
+let bldFilter = 'all', bldSearch = '', bldSort = 'building_number', bldSortDir = 'ASC';
 function renderBuildingList() {
   let sql = "SELECT * FROM buildings";
   const where = [];
@@ -492,24 +512,34 @@ function renderBuildingList() {
   if (bldFilter === 'disposed') where.push("lifecycle_status IN ('sold','demolished')");
   if (bldSearch) where.push(`(building_number LIKE '%${bldSearch}%' OR door_address LIKE '%${bldSearch}%' OR title_deed_number LIKE '%${bldSearch}%')`);
   if (where.length) sql += " WHERE " + where.join(" AND ");
-  sql += " ORDER BY building_id DESC";
+  const sortMap = { building_number:'building_number', door_address:'door_address', building_type:'building_type', main_area_sqm:'main_area_sqm', total_registered_area_sqm:'total_registered_area_sqm', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
+  const col = sortMap[bldSort] || 'building_number';
+  sql += ` ORDER BY ${col} ${bldSortDir==='ASC'?'ASC':'DESC'}`;
   const rows = query(sql);
 
+  const sortArrow = c => bldSort===c ? (bldSortDir==='ASC'?' ▲':' ▼') : '';
+  const th = (label, c, cls='') => `<th class="${cls}" style="cursor:pointer;user-select:none" onclick="setBldSort('${c}')">${label}${sortArrow(c)}</th>`;
+
+  const sortOptions = [['building_number','建號'],['door_address','門牌'],['building_type','型態'],['main_area_sqm','主建物面積'],['total_registered_area_sqm','總登記面積'],['acquired_at','取得日'],['lifecycle_status','狀態']];
+  const sortSelect = `<select class="search" style="width:auto" onchange="setBldSortField(this.value)">${sortOptions.map(([v,l])=>`<option value="${v}" ${bldSort===v?'selected':''}>依${l}排序</option>`).join('')}</select>
+    <button class="chip" onclick="toggleBldSortDir()">${bldSortDir==='ASC'?'▲ 由小到大':'▼ 由大到小'}</button>`;
+
   let html = `<h2 class="page-title">建物權狀</h2>
-    <div class="page-desc">每筆建號獨立管理 · 各有生命週期（取得日可與土地不同步）</div>
+    <div class="page-desc">每筆建號獨立管理 · 各有生命週期（取得日可與土地不同步）· 點欄位標題或用下方選單排序</div>
     <div class="toolbar">
       <button class="chip ${bldFilter==='all'?'on':''}" onclick="setBldFilter('all')">全部</button>
       <button class="chip ${bldFilter==='held'?'on':''}" onclick="setBldFilter('held')">持有中</button>
       <button class="chip ${bldFilter==='disposed'?'on':''}" onclick="setBldFilter('disposed')">已處分</button>
       <input class="search" placeholder="搜尋建號 / 門牌 / 權狀字號" value="${esc(bldSearch)}" oninput="onBldSearch(this.value)">
       <button class="btn" style="margin-left:auto" onclick="openBuildingForm()">+ 新增建物權狀</button>
-    </div>`;
+    </div>
+    <div class="toolbar">${sortSelect}</div>`;
 
   if (rows.length === 0) {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無建物權狀${bldSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openBuildingForm()">+ 新增第一筆</button></div></div>`;
   } else {
-    html += `<div class="card"><table>
-      <thead><tr><th>建號</th><th>門牌</th><th>型態</th><th class="right">主建物㎡</th><th class="right">總登記㎡</th><th>取得日</th><th>狀態</th><th></th></tr></thead><tbody>`;
+    html += `<div class="card" style="overflow-x:auto"><table>
+      <thead><tr>${th('建號','building_number')}${th('門牌','door_address')}${th('型態','building_type')}${th('主建物㎡','main_area_sqm','right')}${th('總登記㎡','total_registered_area_sqm','right')}${th('取得日','acquired_at')}${th('狀態','lifecycle_status')}<th></th></tr></thead><tbody>`;
     rows.forEach(r => {
       html += `<tr class="clickable" onclick="openDeedDetail('building',${r.building_id})">
         <td class="mono">${esc(r.building_number)}</td>
@@ -530,5 +560,12 @@ function renderBuildingList() {
 }
 function setBldFilter(f) { bldFilter = f; renderBuildingList(); }
 function onBldSearch(v) { bldSearch = v.replace(/'/g,''); renderBuildingList(); }
+function setBldSort(c) {
+  if (bldSort === c) { bldSortDir = bldSortDir === 'ASC' ? 'DESC' : 'ASC'; }
+  else { bldSort = c; bldSortDir = 'ASC'; }
+  renderBuildingList();
+}
+function setBldSortField(c) { bldSort = c; renderBuildingList(); }
+function toggleBldSortDir() { bldSortDir = bldSortDir === 'ASC' ? 'DESC' : 'ASC'; renderBuildingList(); }
 
 window.addEventListener('DOMContentLoaded', boot);
