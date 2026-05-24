@@ -166,10 +166,23 @@ function openBuildingForm(id) {
       ${fieldText('floor_located','所在層次',r.floor_located,{ph:'五層'})}
       ${fieldRocDate('completion_date','建築完成日',r.completion_date,{hint:'影響屋齡'})}
       ${fieldText('usage_registered','登記用途',r.usage_registered,{ph:'住家用'})}
-      ${fieldText('located_land_numbers','坐落地號',r.located_land_numbers,{full:true,ph:'例：石壁段0819，多筆用逗號分隔',hint:'建物坐落在哪筆土地。會自動串聯到不動產物件'})}
+      <div class="field full">
+        <label>坐落地號（勾選此建物坐落的土地權狀，可複選）</label>
+        <div id="landPickList" style="border:1px solid var(--border);border-radius:7px;padding:10px;max-height:180px;overflow-y:auto"></div>
+        <div class="hint">從你已建立的土地權狀中勾選。若清單是空的，請先到「土地權狀」新增地號。</div>
+      </div>
 
       <div class="section-label">面積</div>
-      ${fieldText('main_area_sqm','主建物㎡',r.main_area_sqm,{type:'number'})}
+      <div class="field">
+        ${fieldText('main_area_sqm','主建物㎡',r.main_area_sqm,{type:'number'})}
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <span style="color:var(--text-dim);font-size:14px">權利範圍</span>
+          <input name="share_numerator" type="number" value="${esc(r.share_numerator)}" placeholder="分子" style="width:80px;text-align:center">
+          <span style="color:var(--text-dim)">/</span>
+          <input name="share_denominator" type="number" value="${esc(r.share_denominator)}" placeholder="分母" style="width:80px;text-align:center">
+          <span style="color:var(--text-dim);font-size:13px">不填=全部</span>
+        </div>
+      </div>
       <div class="field">
         <label>權狀總登記㎡</label>
         <div style="display:flex;align-items:center;gap:10px">
@@ -177,10 +190,6 @@ function openBuildingForm(id) {
           <span id="ping_bld_total" style="color:var(--accent);font-weight:600;white-space:nowrap;min-width:80px">${r.total_registered_area_sqm?'≈ '+sqm2ping(r.total_registered_area_sqm)+' 坪':''}</span>
         </div>
       </div>
-
-      <div class="section-label">權利範圍（主建物持分）</div>
-      ${fieldText('share_numerator','持分分子',r.share_numerator,{type:'number',ph:'不填=全部'})}
-      ${fieldText('share_denominator','持分分母',r.share_denominator,{type:'number',ph:'不填=全部'})}
 
       <div class="section-label">附屬建物（陽台、雨遮等，可多筆）</div>
       <div class="field full"><div id="auxList"></div>
@@ -213,6 +222,27 @@ function openBuildingForm(id) {
   commonRows = id ? query("SELECT * FROM common_areas WHERE building_id=?", [id]).map(c => ({section_name:c.section_name, common_building_number:c.common_building_number, area_sqm:c.area_sqm, share_numerator:c.share_numerator, share_denominator:c.share_denominator})) : [];
   renderAuxList();
   renderCommonList();
+  // 載入土地權狀勾選清單
+  renderLandPickList(id);
+}
+
+/* 渲染「坐落地號」可勾選的土地權狀清單 */
+function renderLandPickList(buildingId) {
+  const box = document.getElementById('landPickList');
+  if (!box) return;
+  const lands = query("SELECT land_id, land_number, section_name FROM lands WHERE lifecycle_status='held' ORDER BY land_number");
+  if (!lands.length) {
+    box.innerHTML = '<div style="color:var(--text-dim);font-size:14px">目前沒有土地權狀可選，請先到「土地權狀」新增。</div>';
+    return;
+  }
+  // 已連結的土地
+  const linked = buildingId ? query("SELECT land_id FROM building_lands WHERE building_id=?", [buildingId]).map(r => r.land_id) : [];
+  box.innerHTML = lands.map(l => `
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:15px">
+      <input type="checkbox" data-land-pick="${l.land_id}" ${linked.includes(l.land_id)?'checked':''} style="width:18px;height:18px">
+      <span class="mono">${esc(l.land_number)}</span>
+      <span style="color:var(--text-dim)">${esc(l.section_name)||''}</span>
+    </label>`).join('');
 }
 
 /* ===== 附屬建物 / 共同使用部分 的動態清單 ===== */
@@ -289,12 +319,18 @@ function saveBuilding(id) {
     if (c.section_name || c.common_building_number || c.area_sqm) run("INSERT INTO common_areas (building_id,section_name,common_building_number,area_sqm,share_numerator,share_denominator,created_at) VALUES (?,?,?,?,?,?,?)",
       [bid, c.section_name||null, c.common_building_number||null, c.area_sqm||null, c.share_numerator||null, c.share_denominator||null, now()]);
   });
+  // 重寫坐落土地關聯（從勾選的 checkbox 讀取）
+  run("DELETE FROM building_lands WHERE building_id=?", [bid]);
+  document.querySelectorAll('[data-land-pick]:checked').forEach(cb => {
+    run("INSERT INTO building_lands (building_id,land_id,created_at) VALUES (?,?,?)", [bid, parseInt(cb.dataset.landPick), now()]);
+  });
   autoSave(); closeModal(); renderBuildingList();
 }
 function deleteBuilding(id) {
   const r = query("SELECT building_number FROM buildings WHERE building_id=?", [id])[0];
   if (!confirm(`確定刪除建物權狀 ${r.building_number}？此動作無法復原。`)) return;
   run("DELETE FROM buildings WHERE building_id=?", [id]);
+  run("DELETE FROM building_lands WHERE building_id=?", [id]);
   run("DELETE FROM deed_events WHERE deed_type='building' AND deed_id=?", [id]);
   run("DELETE FROM building_auxiliaries WHERE building_id=?", [id]);
   run("DELETE FROM common_areas WHERE building_id=?", [id]);
@@ -343,6 +379,18 @@ function openDeedDetail(type, id) {
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
     add('取得日', rocDate(r.acquired_at));
     add('權狀正本位置', esc(r.deed_physical_location)||'—');
+    // 坐落地號（從關聯表，可點擊跳到土地權狀）
+    const sittingLands = query("SELECT l.land_id, l.land_number FROM building_lands bl JOIN lands l ON l.land_id=bl.land_id WHERE bl.building_id=?", [id]);
+    const landLinks = sittingLands.length ? sittingLands.map(l => `<a style="color:var(--accent);cursor:pointer" onclick="openDeedDetail('land',${l.land_id})">${esc(l.land_number)}</a>`).join('、') : '—';
+    add('坐落地號', landLinks);
+    // 附屬建物
+    const auxList = query("SELECT aux_type, area_sqm, share_numerator, share_denominator FROM building_auxiliaries WHERE building_id=?", [id]);
+    const auxStr = auxList.length ? auxList.map(a => `${enumLabel('aux_type',a.aux_type)} ${fmt(a.area_sqm)}㎡${(a.share_numerator&&a.share_denominator)?`（${a.share_numerator}/${a.share_denominator}）`:''}`).join('<br>') : '—';
+    add('附屬建物', auxStr);
+    // 共同使用部分
+    const comList = query("SELECT section_name, common_building_number, area_sqm, share_numerator, share_denominator FROM common_areas WHERE building_id=?", [id]);
+    const comStr = comList.length ? comList.map(c => `${esc(c.section_name)||''} ${esc(c.common_building_number)||''}建號 ${fmt(c.area_sqm)}㎡${(c.share_numerator&&c.share_denominator)?` 權利範圍${c.share_numerator}/${c.share_denominator}`:''}`).join('<br>') : '—';
+    add('共同使用部分', comStr);
   }
 
   let evHtml = '';
