@@ -447,21 +447,15 @@ function renderLandList() {
   const sortArrow = c => landSort===c ? (landSortDir==='ASC'?' ▲':' ▼') : '';
   const th = (label, c, cls='') => `<th class="${cls}" style="cursor:pointer;user-select:none" onclick="setLandSort('${c}')">${label}${sortArrow(c)}</th>`;
 
-  // 排序下拉選單
-  const sortOptions = [['deed_physical_location','權狀正本位置'],['land_number','地號'],['section_name','地段'],['land_category','地目'],['total_area_sqm','面積'],['acquisition_cost','取得成本'],['acquired_at','取得日'],['lifecycle_status','狀態']];
-  const sortSelect = `<select class="search" style="width:auto" onchange="setLandSortField(this.value)">${sortOptions.map(([v,l])=>`<option value="${v}" ${landSort===v?'selected':''}>依${l}排序</option>`).join('')}</select>
-    <button class="chip" onclick="toggleLandSortDir()">${landSortDir==='ASC'?'▲ 由小到大':'▼ 由大到小'}</button>`;
-
   let html = `<h2 class="page-title">土地權狀</h2>
-    <div class="page-desc">每筆地號獨立管理 · 各有生命週期 · 點欄位標題或用下方選單排序</div>
+    <div class="page-desc">每筆地號獨立管理 · 各有生命週期 · 點欄位標題可排序</div>
     <div class="toolbar">
       <button class="chip ${landFilter==='all'?'on':''}" onclick="setLandFilter('all')">全部</button>
       <button class="chip ${landFilter==='held'?'on':''}" onclick="setLandFilter('held')">持有中</button>
       <button class="chip ${landFilter==='disposed'?'on':''}" onclick="setLandFilter('disposed')">已處分</button>
       <input class="search" placeholder="搜尋地號 / 地段 / 權狀字號" value="${esc(landSearch)}" oninput="onLandSearch(this.value)">
       <button class="btn" style="margin-left:auto" onclick="openLandForm()">+ 新增土地權狀</button>
-    </div>
-    <div class="toolbar">${sortSelect}</div>`;
+    </div>`;
 
   if (rows.length === 0) {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無土地權狀${landSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openLandForm()">+ 新增第一筆</button></div></div>`;
@@ -498,8 +492,6 @@ function setLandSort(c) {
   else { landSort = c; landSortDir = 'ASC'; }
   renderLandList();
 }
-function setLandSortField(c) { landSort = c; renderLandList(); }
-function toggleLandSortDir() { landSortDir = landSortDir === 'ASC' ? 'DESC' : 'ASC'; renderLandList(); }
 
 /* ============================================================
    建物權狀：列表
@@ -520,20 +512,15 @@ function renderBuildingList() {
   const sortArrow = c => bldSort===c ? (bldSortDir==='ASC'?' ▲':' ▼') : '';
   const th = (label, c, cls='') => `<th class="${cls}" style="cursor:pointer;user-select:none" onclick="setBldSort('${c}')">${label}${sortArrow(c)}</th>`;
 
-  const sortOptions = [['building_number','建號'],['door_address','門牌'],['building_type','型態'],['main_area_sqm','主建物面積'],['total_registered_area_sqm','總登記面積'],['acquired_at','取得日'],['lifecycle_status','狀態']];
-  const sortSelect = `<select class="search" style="width:auto" onchange="setBldSortField(this.value)">${sortOptions.map(([v,l])=>`<option value="${v}" ${bldSort===v?'selected':''}>依${l}排序</option>`).join('')}</select>
-    <button class="chip" onclick="toggleBldSortDir()">${bldSortDir==='ASC'?'▲ 由小到大':'▼ 由大到小'}</button>`;
-
   let html = `<h2 class="page-title">建物權狀</h2>
-    <div class="page-desc">每筆建號獨立管理 · 各有生命週期（取得日可與土地不同步）· 點欄位標題或用下方選單排序</div>
+    <div class="page-desc">每筆建號獨立管理 · 各有生命週期（取得日可與土地不同步）· 點欄位標題可排序</div>
     <div class="toolbar">
       <button class="chip ${bldFilter==='all'?'on':''}" onclick="setBldFilter('all')">全部</button>
       <button class="chip ${bldFilter==='held'?'on':''}" onclick="setBldFilter('held')">持有中</button>
       <button class="chip ${bldFilter==='disposed'?'on':''}" onclick="setBldFilter('disposed')">已處分</button>
       <input class="search" placeholder="搜尋建號 / 門牌 / 權狀字號" value="${esc(bldSearch)}" oninput="onBldSearch(this.value)">
       <button class="btn" style="margin-left:auto" onclick="openBuildingForm()">+ 新增建物權狀</button>
-    </div>
-    <div class="toolbar">${sortSelect}</div>`;
+    </div>`;
 
   if (rows.length === 0) {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無建物權狀${bldSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openBuildingForm()">+ 新增第一筆</button></div></div>`;
@@ -565,7 +552,5 @@ function setBldSort(c) {
   else { bldSort = c; bldSortDir = 'ASC'; }
   renderBuildingList();
 }
-function setBldSortField(c) { bldSort = c; renderBuildingList(); }
-function toggleBldSortDir() { bldSortDir = bldSortDir === 'ASC' ? 'DESC' : 'ASC'; renderBuildingList(); }
 
 window.addEventListener('DOMContentLoaded', boot);
