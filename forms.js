@@ -17,9 +17,9 @@ function updatePing(input, hintId) {
    用法：fieldRocDate('acquired_at','取得日', r.acquired_at) */
 function fieldRocDate(name, label, westValue, opts={}) {
   const roc = westToRoc(westValue);
-  return `<div class="field ${opts.full?'full':''}">
+  return `<div class="field full">
     <label>${label}（民國年）${opts.req?' <span class="req">*</span>':''}</label>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">
       <span style="color:var(--text-dim)">民國</span>
       <input data-roc="${name}" data-part="y" type="number" value="${roc.y}" placeholder="108" style="width:90px;text-align:center" oninput="updateRocWest('${name}')">
       <span style="color:var(--text-dim)">年</span>

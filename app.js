@@ -438,7 +438,7 @@ function renderLandList() {
   if (landSearch) where.push(`(land_number LIKE '%${landSearch}%' OR section_name LIKE '%${landSearch}%' OR title_deed_number LIKE '%${landSearch}%')`);
   if (where.length) sql += " WHERE " + where.join(" AND ");
   // 排序：文字欄位用 COLLATE 讓地號自然排序
-  const sortMap = { deed_physical_location:'deed_physical_location', land_number:'land_number', section_name:'section_name', land_category:'land_category', total_area_sqm:'total_area_sqm', acquisition_cost:'acquisition_cost', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
+  const sortMap = { deed_physical_location:'deed_physical_location', title_deed_number:'title_deed_number', land_number:'land_number', section_name:'section_name', land_category:'land_category', total_area_sqm:'total_area_sqm', acquisition_cost:'acquisition_cost', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
   const col = sortMap[landSort] || 'deed_physical_location';
   sql += ` ORDER BY ${col} ${landSortDir==='ASC'?'ASC':'DESC'}`;
   const rows = query(sql);
@@ -461,11 +461,12 @@ function renderLandList() {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無土地權狀${landSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openLandForm()">+ 新增第一筆</button></div></div>`;
   } else {
     html += `<div class="card" style="overflow-x:auto"><table>
-      <thead><tr>${th('權狀正本位置','deed_physical_location')}${th('地號','land_number')}${th('地段','section_name')}${th('地目','land_category')}${th('面積㎡','total_area_sqm','right')}<th class="right">坪數</th>${th('取得成本','acquisition_cost','right')}<th>持分</th>${th('取得日','acquired_at')}${th('狀態','lifecycle_status')}<th>抵押</th><th></th></tr></thead><tbody>`;
+      <thead><tr>${th('權狀正本位置','deed_physical_location')}${th('權狀字號','title_deed_number')}${th('地號','land_number')}${th('地段','section_name')}${th('地目','land_category')}${th('面積㎡','total_area_sqm','right')}<th class="right">坪數</th>${th('取得成本','acquisition_cost','right')}<th>持分</th>${th('取得日','acquired_at')}${th('狀態','lifecycle_status')}<th>抵押</th><th></th></tr></thead><tbody>`;
     rows.forEach(r => {
       const share = (r.share_numerator && r.share_denominator) ? `${r.share_numerator}/${r.share_denominator}` : '全部';
       html += `<tr class="clickable" onclick="openDeedDetail('land',${r.land_id})">
         <td>${esc(r.deed_physical_location)||'—'}</td>
+        <td class="mono">${esc(r.title_deed_number)||'—'}</td>
         <td class="mono">${esc(r.land_number)}</td>
         <td>${esc(r.section_name)||'—'}</td>
         <td>${enumLabel('land_category',r.land_category)}</td>
