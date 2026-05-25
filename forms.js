@@ -276,7 +276,7 @@ function openBuildingForm(id) {
       ${fieldText('door_address','門牌',r.door_address,{full:true})}
       ${fieldText('title_deed_number','權狀字號',r.title_deed_number)}
       ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
-      ${fieldSelect('building_type','建物型態','building_type',r.building_type)}
+      ${fieldSelectOrText('building_type','建物型態',['公寓','電梯大樓','透天厝','套房','店面','辦公','廠房','華廈','別墅'],r.building_type?enumLabel('building_type',r.building_type):'')}
       ${fieldSelectOrText('structure','主要構造',['鋼筋混凝土造','加強磚造','鋼骨鋼筋混凝土造','鋼骨造','磚造','木造','土造','石造'],r.structure)}
       ${fieldText('total_floors','總樓層',r.total_floors,{type:'number'})}
       ${fieldText('floor_located','所在層次',r.floor_located,{ph:'五層'})}
