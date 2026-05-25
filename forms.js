@@ -167,19 +167,20 @@ function openBuildingForm(id) {
       ${fieldRocDate('completion_date','建築完成日',r.completion_date,{hint:'影響屋齡'})}
       ${fieldText('usage_registered','登記用途',r.usage_registered,{ph:'住家用'})}
       <div class="field full">
-        <label>坐落地號（勾選此建物坐落的土地權狀，可複選）</label>
-        <div id="landPickList" style="border:1px solid var(--border);border-radius:7px;padding:10px;max-height:180px;overflow-y:auto"></div>
-        <div class="hint">從你已建立的土地權狀中勾選。若清單是空的，請先到「土地權狀」新增地號。</div>
+        <label>坐落地號（從下拉選單加入此建物坐落的土地，可多筆）</label>
+        <select id="landPickDropdown" onchange="addLandPick(this.value)" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:7px;font-size:16px;width:100%"></select>
+        <div id="landPickChosen" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px"></div>
+        <div class="hint">從下拉選單選土地加入；已加入的可按 ✕ 移除。若下拉是空的，請先到「土地權狀」新增地號。</div>
       </div>
 
       <div class="section-label">面積</div>
       <div class="field">
         ${fieldText('main_area_sqm','主建物㎡',r.main_area_sqm,{type:'number'})}
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:nowrap;white-space:nowrap">
           <span style="color:var(--text-dim);font-size:14px">權利範圍</span>
-          <input name="share_numerator" type="number" value="${esc(r.share_numerator)}" placeholder="分子" style="width:80px;text-align:center">
+          <input name="share_numerator" type="number" value="${esc(r.share_numerator)}" placeholder="分子" style="width:72px;text-align:center">
           <span style="color:var(--text-dim)">/</span>
-          <input name="share_denominator" type="number" value="${esc(r.share_denominator)}" placeholder="分母" style="width:80px;text-align:center">
+          <input name="share_denominator" type="number" value="${esc(r.share_denominator)}" placeholder="分母" style="width:72px;text-align:center">
           <span style="color:var(--text-dim);font-size:13px">不填=全部</span>
         </div>
       </div>
@@ -226,23 +227,55 @@ function openBuildingForm(id) {
   renderLandPickList(id);
 }
 
-/* 渲染「坐落地號」可勾選的土地權狀清單 */
+/* 坐落地號：下拉選單 + 已選標籤 */
+let pickedLands = [];      // 已選土地 [{land_id, land_number, section_name}]
+let allLandsCache = [];    // 全部可選土地
+
 function renderLandPickList(buildingId) {
-  const box = document.getElementById('landPickList');
-  if (!box) return;
-  const lands = query("SELECT land_id, land_number, section_name FROM lands WHERE lifecycle_status='held' ORDER BY land_number");
-  if (!lands.length) {
-    box.innerHTML = '<div style="color:var(--text-dim);font-size:14px">目前沒有土地權狀可選，請先到「土地權狀」新增。</div>';
-    return;
+  allLandsCache = query("SELECT land_id, land_number, section_name FROM lands WHERE lifecycle_status='held' ORDER BY land_number");
+  // 編輯時帶入已連結的土地
+  if (buildingId) {
+    const linkedIds = query("SELECT land_id FROM building_lands WHERE building_id=?", [buildingId]).map(r => r.land_id);
+    pickedLands = allLandsCache.filter(l => linkedIds.includes(l.land_id));
+  } else {
+    pickedLands = [];
   }
-  // 已連結的土地
-  const linked = buildingId ? query("SELECT land_id FROM building_lands WHERE building_id=?", [buildingId]).map(r => r.land_id) : [];
-  box.innerHTML = lands.map(l => `
-    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:15px">
-      <input type="checkbox" data-land-pick="${l.land_id}" ${linked.includes(l.land_id)?'checked':''} style="width:18px;height:18px">
-      <span class="mono">${esc(l.land_number)}</span>
-      <span style="color:var(--text-dim)">${esc(l.section_name)||''}</span>
-    </label>`).join('');
+  renderLandDropdown();
+  renderLandChosen();
+}
+function renderLandDropdown() {
+  const dd = document.getElementById('landPickDropdown');
+  if (!dd) return;
+  const pickedIds = pickedLands.map(p => p.land_id);
+  const avail = allLandsCache.filter(l => !pickedIds.includes(l.land_id));
+  if (!allLandsCache.length) {
+    dd.innerHTML = '<option value="">（尚無土地權狀，請先到「土地權狀」新增）</option>';
+  } else if (!avail.length) {
+    dd.innerHTML = '<option value="">（已全部加入）</option>';
+  } else {
+    dd.innerHTML = '<option value="">＋ 選擇土地加入…</option>' +
+      avail.map(l => `<option value="${l.land_id}">${esc(l.land_number)} ${esc(l.section_name)||''}</option>`).join('');
+  }
+}
+function renderLandChosen() {
+  const box = document.getElementById('landPickChosen');
+  if (!box) return;
+  if (!pickedLands.length) { box.innerHTML = '<span style="color:var(--text-dim);font-size:14px">尚未選擇坐落土地</span>'; return; }
+  box.innerHTML = pickedLands.map(l => `
+    <span style="display:inline-flex;align-items:center;gap:6px;background:var(--accent-dim);color:var(--accent);padding:6px 12px;border-radius:20px;font-size:15px">
+      <span class="mono">${esc(l.land_number)}</span>${esc(l.section_name)||''}
+      <span style="cursor:pointer;font-weight:700" onclick="removeLandPick(${l.land_id})">✕</span>
+    </span>`).join('');
+}
+function addLandPick(landId) {
+  if (!landId) return;
+  const l = allLandsCache.find(x => x.land_id == landId);
+  if (l && !pickedLands.some(p => p.land_id == landId)) pickedLands.push(l);
+  renderLandDropdown(); renderLandChosen();
+}
+function removeLandPick(landId) {
+  pickedLands = pickedLands.filter(p => p.land_id != landId);
+  renderLandDropdown(); renderLandChosen();
 }
 
 /* ===== 附屬建物 / 共同使用部分 的動態清單 ===== */
@@ -319,10 +352,10 @@ function saveBuilding(id) {
     if (c.section_name || c.common_building_number || c.area_sqm) run("INSERT INTO common_areas (building_id,section_name,common_building_number,area_sqm,share_numerator,share_denominator,created_at) VALUES (?,?,?,?,?,?,?)",
       [bid, c.section_name||null, c.common_building_number||null, c.area_sqm||null, c.share_numerator||null, c.share_denominator||null, now()]);
   });
-  // 重寫坐落土地關聯（從勾選的 checkbox 讀取）
+  // 重寫坐落土地關聯（從已選清單 pickedLands）
   run("DELETE FROM building_lands WHERE building_id=?", [bid]);
-  document.querySelectorAll('[data-land-pick]:checked').forEach(cb => {
-    run("INSERT INTO building_lands (building_id,land_id,created_at) VALUES (?,?,?)", [bid, parseInt(cb.dataset.landPick), now()]);
+  pickedLands.forEach(l => {
+    run("INSERT INTO building_lands (building_id,land_id,created_at) VALUES (?,?,?)", [bid, l.land_id, now()]);
   });
   autoSave(); closeModal(); renderBuildingList();
 }
