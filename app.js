@@ -487,7 +487,7 @@ function renderLandList() {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無土地權狀${landSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openLandForm()">+ 新增第一筆</button></div></div>`;
   } else {
     html += `<div class="card" style="overflow-x:auto"><table>
-      <thead><tr>${th('權狀正本位置','deed_physical_location')}${th('權狀字號','title_deed_number')}${th('地號','land_number')}${th('地段','section_name')}${th('地目','land_category')}${th('面積㎡','total_area_sqm','right')}<th class="right">坪數</th>${th('取得成本','acquisition_cost','right')}<th>持分</th>${th('取得日','acquired_at')}${th('狀態','lifecycle_status')}<th>抵押</th><th></th></tr></thead><tbody>`;
+      <thead><tr>${th('權狀正本位置','deed_physical_location')}${th('權狀字號','title_deed_number')}${th('地號','land_number')}${th('地段','section_name')}${th('地目','land_category')}${th('面積㎡','total_area_sqm','right')}<th class="right">坪數</th>${th('取得成本','acquisition_cost','right')}<th>持分</th>${th('登記日期','acquired_at')}${th('狀態','lifecycle_status')}<th>抵押</th><th></th></tr></thead><tbody>`;
     rows.forEach(r => {
       const share = (r.share_numerator && r.share_denominator) ? `${r.share_numerator}/${r.share_denominator}` : '全部';
       html += `<tr class="clickable" onclick="openDeedDetail('land',${r.land_id})">
@@ -540,7 +540,7 @@ function renderBuildingList() {
   const th = (label, c, cls='') => `<th class="${cls}" style="cursor:pointer;user-select:none" onclick="setBldSort('${c}')">${label}${sortArrow(c)}</th>`;
 
   let html = `<h2 class="page-title">建物權狀</h2>
-    <div class="page-desc">每筆建號獨立管理 · 各有生命週期（取得日可與土地不同步）· 點欄位標題可排序</div>
+    <div class="page-desc">每筆建號獨立管理 · 各有生命週期（登記日期可與土地不同步）· 點欄位標題可排序</div>
     <div class="toolbar">
       <button class="chip ${bldFilter==='all'?'on':''}" onclick="setBldFilter('all')">全部</button>
       <button class="chip ${bldFilter==='held'?'on':''}" onclick="setBldFilter('held')">持有中</button>
@@ -553,7 +553,7 @@ function renderBuildingList() {
     html += `<div class="card"><div class="empty"><div class="big">▦</div>尚無建物權狀${bldSearch?'符合搜尋':''}<br><br><button class="btn" onclick="openBuildingForm()">+ 新增第一筆</button></div></div>`;
   } else {
     html += `<div class="card" style="overflow-x:auto"><table>
-      <thead><tr>${th('權狀正本位置','deed_physical_location')}${th('權狀字號','title_deed_number')}${th('門牌','door_address')}${th('建號','building_number')}${th('主建物㎡','main_area_sqm','right')}${th('附屬建物㎡','auxiliary_area_sqm','right')}${th('權狀總登記㎡','total_registered_area_sqm','right')}${th('取得成本','acquisition_cost','right')}<th>持分</th>${th('取得日','acquired_at')}${th('狀態','lifecycle_status')}<th>抵押</th><th></th></tr></thead><tbody>`;
+      <thead><tr>${th('權狀正本位置','deed_physical_location')}${th('權狀字號','title_deed_number')}${th('門牌','door_address')}${th('建號','building_number')}${th('主建物㎡','main_area_sqm','right')}${th('附屬建物㎡','auxiliary_area_sqm','right')}${th('權狀總登記㎡','total_registered_area_sqm','right')}${th('取得成本','acquisition_cost','right')}<th>持分</th>${th('登記日期','acquired_at')}${th('狀態','lifecycle_status')}<th>抵押</th><th></th></tr></thead><tbody>`;
     rows.forEach(r => {
       const share = (r.share_numerator && r.share_denominator) ? `${r.share_numerator}/${r.share_denominator}` : '全部';
       html += `<tr class="clickable" onclick="openDeedDetail('building',${r.building_id})">

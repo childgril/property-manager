@@ -63,6 +63,33 @@ function fieldText(name, label, val, opts={}) {
 function fieldSelect(name, label, group, val) {
   return `<div class="field"><label>${label}</label><select name="${name}"><option value="">—</option>${selectOptions(group,val)}</select></div>`;
 }
+/* 下拉選常見選項 + 可手動輸入。options 為字串陣列。
+   若現值不在選項中（編輯舊資料），自動切到「其他」並帶入手動框。 */
+function fieldSelectOrText(name, label, options, val, opts={}) {
+  const inList = val && options.includes(val);
+  const showText = val && !inList; // 現值不在清單→顯示手動框
+  const opt = ['<option value="">—</option>']
+    .concat(options.map(o => `<option value="${esc(o)}" ${val===o?'selected':''}>${esc(o)}</option>`))
+    .concat(`<option value="__other__" ${showText?'selected':''}>其他（手動輸入）</option>`).join('');
+  return `<div class="field ${opts.full?'full':''}">
+    <label>${label}</label>
+    <select name="${name}_sel" onchange="onSelectOrText('${name}', this.value)">${opt}</select>
+    <input name="${name}" value="${esc(val)}" placeholder="手動輸入${label}" style="margin-top:6px;display:${showText?'block':'none'}" id="txt_${name}">
+  </div>`;
+}
+/* 下拉選到「其他」就顯示手動框；選一般選項就把值填進去並隱藏手動框 */
+function onSelectOrText(name, selVal) {
+  const txt = document.getElementById('txt_' + name);
+  if (!txt) return;
+  if (selVal === '__other__') {
+    txt.style.display = 'block';
+    txt.value = '';
+    txt.focus();
+  } else {
+    txt.style.display = 'none';
+    txt.value = selVal; // 把選到的值寫進實際送出的欄位
+  }
+}
 function readForm() {
   const obj = {};
   $('#modal').querySelectorAll('input,select,textarea').forEach(el => {
@@ -103,7 +130,7 @@ function openLandForm(id) {
       ${fieldText('announced_value_date','公告現值年期',r.announced_value_date,{type:'date'})}
 
       <div class="section-label">生命週期</div>
-      ${fieldRocDate('acquired_at','取得日',r.acquired_at,{hint:'這張權狀的「出生」'})}
+      ${fieldRocDate('acquired_at','登記日期',r.acquired_at,{hint:'這張權狀的「出生」'})}
       ${fieldSelect('acquisition_type','取得方式','land_acq',r.acquisition_type)}
       ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','land_status',r.lifecycle_status||'held')}
@@ -161,11 +188,11 @@ function openBuildingForm(id) {
       ${fieldText('door_address','門牌',r.door_address,{full:true})}
       ${fieldText('title_deed_number','權狀字號',r.title_deed_number,{full:true})}
       ${fieldSelect('building_type','建物型態','building_type',r.building_type)}
-      ${fieldText('structure','主要構造',r.structure,{ph:'鋼筋混凝土造'})}
+      ${fieldSelectOrText('structure','主要構造',['鋼筋混凝土造','加強磚造','鋼骨鋼筋混凝土造','鋼骨造','磚造','木造','土造','石造'],r.structure)}
       ${fieldText('total_floors','總樓層',r.total_floors,{type:'number'})}
       ${fieldText('floor_located','所在層次',r.floor_located,{ph:'五層'})}
       ${fieldRocDate('completion_date','建築完成日',r.completion_date,{hint:'影響屋齡'})}
-      ${fieldText('usage_registered','登記用途',r.usage_registered,{ph:'住家用'})}
+      ${fieldSelectOrText('usage_registered','登記用途',['住家用','商業用','辦公室','店鋪','住商用','工業用','廠房','倉庫','停車空間'],r.usage_registered)}
       <div class="field full">
         <label>坐落地號（從下拉選單加入此建物坐落的土地，可多筆）</label>
         <select id="landPickDropdown" onchange="addLandPick(this.value)" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:7px;font-size:16px;width:100%"></select>
@@ -201,7 +228,7 @@ function openBuildingForm(id) {
         <button type="button" class="btn ghost" style="margin-top:6px" onclick="addCommonRow()">+ 新增共同使用部分</button></div>
 
       <div class="section-label">生命週期</div>
-      ${fieldRocDate('acquired_at','取得日',r.acquired_at,{hint:'自地自建為保存登記日'})}
+      ${fieldRocDate('acquired_at','登記日期',r.acquired_at,{hint:'自地自建為保存登記日'})}
       ${fieldSelect('acquisition_type','取得方式','building_acq',r.acquisition_type)}
       ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number',hint:'自地自建為營造成本'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','building_status',r.lifecycle_status||'held')}
@@ -428,7 +455,7 @@ function openDeedDetail(type, id) {
     add('坪數', `<span class="mono">${sqm2ping(r.total_area_sqm)} 坪</span>`);
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
     add('持分', (r.share_numerator&&r.share_denominator)?`<span class="mono">${r.share_numerator}/${r.share_denominator}</span>`:'全部（1/1）');
-    add('取得日', rocDate(r.acquired_at));
+    add('登記日期', rocDate(r.acquired_at));
     add('狀態', `<span class="badge ${r.lifecycle_status}">${enumLabel('land_status',r.lifecycle_status)}</span>`);
     add('是否設定抵押', r.has_mortgage?'已設定':'無');
     add('權狀字號', `<span class="mono">${esc(r.title_deed_number)||'—'}</span>`);
@@ -443,7 +470,7 @@ function openDeedDetail(type, id) {
     add('主建物', `<span class="mono">${fmt(r.main_area_sqm)} ㎡</span>`);
     add('總登記面積', `<span class="mono">${fmt(r.total_registered_area_sqm)} ㎡（${sqm2ping(r.total_registered_area_sqm)} 坪）</span>`);
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
-    add('取得日', rocDate(r.acquired_at));
+    add('登記日期', rocDate(r.acquired_at));
     add('權狀正本位置', esc(r.deed_physical_location)||'—');
     // 坐落地號（從關聯表，可點擊跳到土地權狀）
     const sittingLands = query("SELECT l.land_id, l.land_number FROM building_lands bl JOIN lands l ON l.land_id=bl.land_id WHERE bl.building_id=?", [id]);
