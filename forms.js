@@ -134,8 +134,28 @@ function openLandForm(id) {
       ${fieldSelect('acquisition_type','取得方式','land_acq',r.acquisition_type)}
       ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','land_status',r.lifecycle_status||'held')}
-      ${fieldRocDate('disposed_at','處分日',r.disposed_at,{hint:'出售/分割/合併才填'})}
-      ${fieldSelect('disposal_type','處分方式','land_disposal',r.disposal_type)}
+      <div class="field full">
+        <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap">
+          <div>
+            <label style="display:block;font-size:15px;color:var(--text);font-weight:500;margin-bottom:6px">處分日（民國年）</label>
+            <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+              <span style="color:var(--text-dim)">民國</span>
+              <input data-roc="disposed_at" data-part="y" type="number" value="${westToRoc(r.disposed_at).y}" placeholder="108" style="width:80px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <span style="color:var(--text-dim)">年</span>
+              <input data-roc="disposed_at" data-part="m" type="number" value="${westToRoc(r.disposed_at).m}" placeholder="3" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <span style="color:var(--text-dim)">月</span>
+              <input data-roc="disposed_at" data-part="d" type="number" value="${westToRoc(r.disposed_at).d}" placeholder="15" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <span style="color:var(--text-dim)">日</span>
+            </div>
+            <span id="west_disposed_at" style="color:var(--accent);font-weight:600;font-size:13px">${r.disposed_at?'= 西元'+r.disposed_at:''}</span>
+          </div>
+          <div>
+            <label style="display:block;font-size:15px;color:var(--text);font-weight:500;margin-bottom:6px">處分方式</label>
+            <select name="disposal_type" style="width:140px">${['<option value="">—</option>'].concat(ENUMS.land_disposal.map(([v,l])=>`<option value="${v}" ${r.disposal_type===v?'selected':''}>${l}</option>`)).join('')}</select>
+          </div>
+        </div>
+        <div class="hint">出售/分割/合併/贈與才填</div>
+      </div>
 
       <div class="section-label">他項權利與文件</div>
       <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
@@ -232,8 +252,28 @@ function openBuildingForm(id) {
       ${fieldSelect('acquisition_type','取得方式','building_acq',r.acquisition_type)}
       ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number',hint:'自地自建為營造成本'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','building_status',r.lifecycle_status||'held')}
-      ${fieldRocDate('disposed_at','處分日',r.disposed_at)}
-      ${fieldSelect('disposal_type','處分方式','building_disposal',r.disposal_type)}
+      <div class="field full">
+        <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap">
+          <div>
+            <label style="display:block;font-size:15px;color:var(--text);font-weight:500;margin-bottom:6px">處分日（民國年）</label>
+            <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+              <span style="color:var(--text-dim)">民國</span>
+              <input data-roc="disposed_at" data-part="y" type="number" value="${westToRoc(r.disposed_at).y}" placeholder="108" style="width:80px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <span style="color:var(--text-dim)">年</span>
+              <input data-roc="disposed_at" data-part="m" type="number" value="${westToRoc(r.disposed_at).m}" placeholder="3" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <span style="color:var(--text-dim)">月</span>
+              <input data-roc="disposed_at" data-part="d" type="number" value="${westToRoc(r.disposed_at).d}" placeholder="15" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <span style="color:var(--text-dim)">日</span>
+            </div>
+            <span id="west_disposed_at" style="color:var(--accent);font-weight:600;font-size:13px">${r.disposed_at?'= 西元'+r.disposed_at:''}</span>
+          </div>
+          <div>
+            <label style="display:block;font-size:15px;color:var(--text);font-weight:500;margin-bottom:6px">處分方式</label>
+            <select name="disposal_type" style="width:140px">${['<option value="">—</option>'].concat(ENUMS.building_disposal.map(([v,l])=>`<option value="${v}" ${r.disposal_type===v?'selected':''}>${l}</option>`)).join('')}</select>
+          </div>
+        </div>
+        <div class="hint">出售/拆除/徵收/贈與才填</div>
+      </div>
 
       <div class="section-label">他項權利與文件</div>
       <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
@@ -259,7 +299,7 @@ let pickedLands = [];      // 已選土地 [{land_id, land_number, section_name}
 let allLandsCache = [];    // 全部可選土地
 
 function renderLandPickList(buildingId) {
-  allLandsCache = query("SELECT land_id, land_number, section_name FROM lands WHERE lifecycle_status='held' ORDER BY land_number");
+  allLandsCache = query("SELECT land_id, land_number, section_name, title_deed_number FROM lands WHERE lifecycle_status='held' ORDER BY section_name, land_number");
   // 編輯時帶入已連結的土地
   if (buildingId) {
     const linkedIds = query("SELECT land_id FROM building_lands WHERE building_id=?", [buildingId]).map(r => r.land_id);
@@ -269,6 +309,14 @@ function renderLandPickList(buildingId) {
   }
   renderLandDropdown();
   renderLandChosen();
+}
+function landLabel(l) {
+  const parts = [];
+  if (l.section_name) parts.push(l.section_name);
+  parts.push(l.land_number || '');
+  let s = parts.join(' ');
+  if (l.title_deed_number) s += `（${l.title_deed_number}）`;
+  return s;
 }
 function renderLandDropdown() {
   const dd = document.getElementById('landPickDropdown');
@@ -281,7 +329,7 @@ function renderLandDropdown() {
     dd.innerHTML = '<option value="">（已全部加入）</option>';
   } else {
     dd.innerHTML = '<option value="">＋ 選擇土地加入…</option>' +
-      avail.map(l => `<option value="${l.land_id}">${esc(l.land_number)} ${esc(l.section_name)||''}</option>`).join('');
+      avail.map(l => `<option value="${l.land_id}">${esc(landLabel(l))}</option>`).join('');
   }
 }
 function renderLandChosen() {
@@ -290,7 +338,7 @@ function renderLandChosen() {
   if (!pickedLands.length) { box.innerHTML = '<span style="color:var(--text-dim);font-size:14px">尚未選擇坐落土地</span>'; return; }
   box.innerHTML = pickedLands.map(l => `
     <span style="display:inline-flex;align-items:center;gap:6px;background:var(--accent-dim);color:var(--accent);padding:6px 12px;border-radius:20px;font-size:15px">
-      <span class="mono">${esc(l.land_number)}</span>${esc(l.section_name)||''}
+      ${esc(landLabel(l))}
       <span style="cursor:pointer;font-weight:700" onclick="removeLandPick(${l.land_id})">✕</span>
     </span>`).join('');
 }
