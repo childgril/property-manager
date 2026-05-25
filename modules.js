@@ -166,18 +166,65 @@ function renderTxnList() {
 }
 
 function propSelectOptions(current) {
+  let o = '<option value="">— 選擇 —</option>';
+  // 物件
   const ps = query("SELECT property_id, name FROM properties ORDER BY property_id");
-  let o = '<option value="">— 選擇物件 —</option>';
-  ps.forEach(p => o += `<option value="${p.property_id}" ${p.property_id==current?'selected':''}>${esc(p.name)}</option>`);
+  if (ps.length) {
+    o += '<optgroup label="不動產物件">';
+    ps.forEach(p => o += `<option value="prop:${p.property_id}" ${('prop:'+p.property_id)===current||p.property_id==current?'selected':''}>${esc(p.name)}</option>`);
+    o += '</optgroup>';
+  }
+  // 土地權狀
+  const lands = query("SELECT land_id, land_number, section_name FROM lands WHERE lifecycle_status='held' ORDER BY section_name, land_number");
+  if (lands.length) {
+    o += '<optgroup label="土地權狀">';
+    lands.forEach(l => o += `<option value="land:${l.land_id}">${esc((l.section_name||'')+' '+l.land_number)}</option>`);
+    o += '</optgroup>';
+  }
+  // 建物權狀
+  const blds = query("SELECT building_id, building_number, door_address FROM buildings WHERE lifecycle_status='held' ORDER BY building_number");
+  if (blds.length) {
+    o += '<optgroup label="建物權狀">';
+    blds.forEach(b => o += `<option value="bld:${b.building_id}">${esc(b.building_number+(b.door_address?(' '+b.door_address):''))}</option>`);
+    o += '</optgroup>';
+  }
   return o;
+}
+/* 把下拉選的值（prop:/land:/bld:）轉成 property_id。
+   若選的是土地或建物權狀，會先確保它有對應物件（沒有就建），回傳物件 id。 */
+function resolvePropertyId(pickVal) {
+  if (!pickVal) return null;
+  if (pickVal.startsWith('prop:')) return parseInt(pickVal.slice(5));
+  const [type, idStr] = pickVal.split(':');
+  const did = parseInt(idStr);
+  const deedType = type === 'land' ? 'land' : 'building';
+  const col = deedType === 'land' ? 'land_id' : 'building_id';
+  // 找這個權狀目前的物件
+  const exist = query(`SELECT property_id FROM deed_assignments WHERE deed_type=? AND ${col}=? AND is_current=1`, [deedType, did]);
+  if (exist.length) return exist[0].property_id;
+  // 沒有就建一個物件並指派
+  let name;
+  if (deedType === 'land') {
+    const l = query("SELECT section_name, land_number FROM lands WHERE land_id=?", [did])[0];
+    name = ((l.section_name||'')+' '+(l.land_number||'')).trim() || ('地號'+did);
+  } else {
+    const b = query("SELECT building_number, door_address FROM buildings WHERE building_id=?", [did])[0];
+    name = (b.door_address||b.building_number||('建號'+did));
+  }
+  run(`INSERT INTO properties (name,property_type,current_status,created_at,updated_at) VALUES (?,?,?,?,?)`,
+    [name, deedType==='land'?'land':'building', 'self_use', now(), now()]);
+  const propId = query("SELECT last_insert_rowid() AS id")[0].id;
+  run(`INSERT INTO deed_assignments (property_id,deed_type,${col},start_date,is_current,created_at) VALUES (?,?,?,?,1,?)`,
+    [propId, deedType, did, now(), now()]);
+  return propId;
 }
 function openTxnForm(id, presetProp) {
   const r = id ? query("SELECT * FROM transactions WHERE transaction_id=?", [id])[0] : {};
-  const propId = presetProp || r.property_id;
+  const propId = presetProp ? ('prop:'+presetProp) : (r.property_id ? ('prop:'+r.property_id) : '');
   openModal(`
     <div class="modal-head"><h3>${id?'編輯':'新增'}買賣交易</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="field full"><label>所屬物件</label><select name="property_id">${propSelectOptions(propId)}</select></div>
+      <div class="field full"><label>所屬物件 / 權狀（可直接選土地或建物）</label><select name="property_pick">${propSelectOptions(propId)}</select></div>
       ${fieldSelect('transaction_type','交易類型','txn_type',r.transaction_type)}
       ${fieldSelect('transaction_status','交易狀態','txn_status',r.transaction_status||'negotiating')}
       ${fieldText('counterparty_name','交易對象',r.counterparty_name,{ph:'買方/賣方姓名'})}
@@ -202,6 +249,8 @@ function openTxnForm(id, presetProp) {
 }
 function saveTxn(id, presetProp) {
   const f = readForm();
+  // 把下拉選的（物件/土地/建物）轉成 property_id；選權狀會自動建物件
+  f.property_id = f.property_pick ? resolvePropertyId(f.property_pick) : (presetProp || null);
   const cols = ['property_id','transaction_type','transaction_status','counterparty_name','broker_name','broker_fee','lawyer_name','agreed_price','first_viewed_at','contracted_at','sealed_at','title_transferred_at','handover_at','special_terms','notes'];
   const vals = cols.map(c => f[c]||null);
   if (id) run(`UPDATE transactions SET ${cols.map(c=>c+'=?').join(',')},updated_at=? WHERE transaction_id=?`, [...vals, now(), id]);
@@ -317,11 +366,11 @@ function renderLoanList() {
 
 function openLoanForm(id, presetProp) {
   const r = id ? query("SELECT * FROM loans WHERE loan_id=?", [id])[0] : {};
-  const propId = presetProp || r.property_id;
+  const propId = presetProp ? ('prop:'+presetProp) : (r.property_id ? ('prop:'+r.property_id) : '');
   openModal(`
     <div class="modal-head"><h3>${id?'編輯':'新增'}貸款</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="field full"><label>擔保物件</label><select name="property_id">${propSelectOptions(propId)}</select></div>
+      <div class="field full"><label>擔保物件 / 權狀（可直接選土地或建物）</label><select name="property_pick">${propSelectOptions(propId)}</select></div>
       ${fieldText('loan_code','貸款編號',r.loan_code,{ph:'L-0001'})}
       ${fieldSelect('collateral_scope','擔保範圍','collateral_scope',r.collateral_scope)}
       ${fieldText('bank_name','銀行',r.bank_name,{req:true})}
@@ -359,6 +408,7 @@ function openLoanForm(id, presetProp) {
 function saveLoan(id, presetProp) {
   const f = readForm();
   if (!f.bank_name) { toast('銀行為必填', true); return; }
+  f.property_id = f.property_pick ? resolvePropertyId(f.property_pick) : (presetProp || null);
   const cols = ['property_id','loan_code','collateral_scope','bank_name','branch','contact_person','loan_type','approved_amount','approved_ratio','interest_rate','rate_type','term_months','grace_period_months','current_principal','repayment_method','repayment_day','mortgage_amount','lien_certificate_no','disbursed_at','grace_period_end_at','rate_reset_at','lockup_end_at','maturity_at','status','notes'];
   const vals = cols.map(c => f[c]||null);
   if (id) run(`UPDATE loans SET ${cols.map(c=>c+'=?').join(',')},updated_at=? WHERE loan_id=?`, [...vals, now(), id]);

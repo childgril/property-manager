@@ -155,23 +155,7 @@ function openLandForm(id) {
 
       <div class="section-label">生命週期</div>
       ${fieldRocDate('acquired_at','登記日期',r.acquired_at,{hint:'這張權狀的「出生」'})}
-      ${fieldSelect('acquisition_type','取得方式','land_acq',r.acquisition_type)}
-      ${fieldText('acquisition_cost','取得成本（買價）',r.acquisition_cost,{type:'number'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','land_status',r.lifecycle_status||'held')}
-
-      <div class="section-label">取得相關費用（買進時的各項花費，選填）</div>
-      ${fieldText('fee_land_increment_tax','土地增值稅',r.fee_land_increment_tax,{type:'number'})}
-      ${fieldText('fee_stamp_duty','印花稅',r.fee_stamp_duty,{type:'number'})}
-      ${fieldText('fee_lawyer','代書費',r.fee_lawyer,{type:'number'})}
-      ${fieldText('fee_broker','仲介費',r.fee_broker,{type:'number'})}
-      ${fieldText('fee_registration','登記規費',r.fee_registration,{type:'number'})}
-      ${fieldText('fee_other','其他費用',r.fee_other,{type:'number'})}
-      <div class="field full" style="background:var(--accent-dim);border-radius:8px;padding:12px 16px;margin-top:4px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:16px;font-weight:600;color:var(--accent)">總投入成本（買價＋費用）</span>
-          <span style="font-size:20px;font-weight:700;color:var(--accent)" class="mono">$ <span id="costTotal">0</span></span>
-        </div>
-      </div>
       <div class="field full">
         <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap">
           <div>
@@ -195,6 +179,22 @@ function openLandForm(id) {
         <div class="hint">出售/分割/合併/贈與才填</div>
       </div>
 
+      <div class="section-label">取得相關費用（買進時的各項花費，選填）</div>
+      ${fieldSelect('acquisition_type','取得方式','land_acq',r.acquisition_type)}
+      ${fieldText('acquisition_cost','取得成本（買價）',r.acquisition_cost,{type:'number'})}
+      ${fieldText('fee_land_increment_tax','土地增值稅',r.fee_land_increment_tax,{type:'number'})}
+      ${fieldText('fee_stamp_duty','印花稅',r.fee_stamp_duty,{type:'number'})}
+      ${fieldText('fee_lawyer','代書費',r.fee_lawyer,{type:'number'})}
+      ${fieldText('fee_broker','仲介費',r.fee_broker,{type:'number'})}
+      ${fieldText('fee_registration','登記規費',r.fee_registration,{type:'number'})}
+      ${fieldText('fee_other','其他費用',r.fee_other,{type:'number'})}
+      <div class="field full" style="background:var(--accent-dim);border-radius:8px;padding:12px 16px;margin-top:4px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:16px;font-weight:600;color:var(--accent)">總投入成本（買價＋費用）</span>
+          <span style="font-size:20px;font-weight:700;color:var(--accent)" class="mono">$ <span id="costTotal">0</span></span>
+        </div>
+      </div>
+
       <div class="section-label">他項權利與文件</div>
       <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
       ${fieldText('other_rights_notes','其他他項權利',r.other_rights_notes,{full:true,ph:'地上權、地役權等'})}
@@ -214,14 +214,29 @@ function saveLand(id) {
   f.disposed_at = readRocDate('disposed_at');
   const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','land_grade','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_land_increment_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
+  let lid = id;
   if (id) {
     run(`UPDATE lands SET ${cols.map(c=>c+'=?').join(',')}, updated_at=? WHERE land_id=?`, [...vals, now(), id]);
     toast('已更新土地權狀');
   } else {
     run(`INSERT INTO lands (${cols.join(',')},created_at,updated_at) VALUES (${cols.map(()=>'?').join(',')},?,?)`, [...vals, now(), now()]);
+    lid = query("SELECT last_insert_rowid() AS id")[0].id;
     toast('已新增土地權狀');
   }
+  autoLinkLandProperty(lid, f);
   autoSave(); closeModal(); renderLandList();
+}
+/* 土地存檔後，自動建立對應的不動產物件（純土地物件），讓買賣交易可選到。
+   若此土地已歸屬某物件（例如已被建物帶入），則不重複建。 */
+function autoLinkLandProperty(landId, f) {
+  const exists = query("SELECT property_id FROM deed_assignments WHERE deed_type='land' AND land_id=? AND is_current=1", [landId]);
+  if (exists.length) return; // 已屬於某物件（可能被建物帶入），不重複建
+  const pname = (f.section_name?f.section_name:'') + (f.land_number?(' '+f.land_number):'') || ('地號 ' + (f.land_number||''));
+  run(`INSERT INTO properties (name,property_type,current_status,created_at,updated_at) VALUES (?,?,?,?,?)`,
+    [pname.trim()||('地號'+landId), 'land', 'self_use', now(), now()]);
+  const propId = query("SELECT last_insert_rowid() AS id")[0].id;
+  run("INSERT INTO deed_assignments (property_id,deed_type,land_id,start_date,is_current,created_at) VALUES (?,?,?,?,1,?)",
+    [propId, 'land', landId, now(), now()]);
 }
 function deleteLand(id) {
   const r = query("SELECT land_number FROM lands WHERE land_id=?", [id])[0];
@@ -303,23 +318,7 @@ function openBuildingForm(id) {
 
       <div class="section-label">生命週期</div>
       ${fieldRocDate('acquired_at','登記日期',r.acquired_at,{hint:'自地自建為保存登記日'})}
-      ${fieldSelect('acquisition_type','取得方式','building_acq',r.acquisition_type)}
-      ${fieldText('acquisition_cost','取得成本（買價）',r.acquisition_cost,{type:'number',hint:'自地自建為營造成本'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','building_status',r.lifecycle_status||'held')}
-
-      <div class="section-label">取得相關費用（買進時的各項花費，選填）</div>
-      ${fieldText('fee_deed_tax','契稅',r.fee_deed_tax,{type:'number'})}
-      ${fieldText('fee_stamp_duty','印花稅',r.fee_stamp_duty,{type:'number'})}
-      ${fieldText('fee_lawyer','代書費',r.fee_lawyer,{type:'number'})}
-      ${fieldText('fee_broker','仲介費',r.fee_broker,{type:'number'})}
-      ${fieldText('fee_registration','登記規費',r.fee_registration,{type:'number'})}
-      ${fieldText('fee_other','其他費用',r.fee_other,{type:'number'})}
-      <div class="field full" style="background:var(--accent-dim);border-radius:8px;padding:12px 16px;margin-top:4px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:16px;font-weight:600;color:var(--accent)">總投入成本（買價＋費用）</span>
-          <span style="font-size:20px;font-weight:700;color:var(--accent)" class="mono">$ <span id="costTotal">0</span></span>
-        </div>
-      </div>
       <div class="field full">
         <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap">
           <div>
@@ -341,6 +340,22 @@ function openBuildingForm(id) {
           </div>
         </div>
         <div class="hint">出售/拆除/徵收/贈與才填</div>
+      </div>
+
+      <div class="section-label">取得相關費用（買進時的各項花費，選填）</div>
+      ${fieldSelect('acquisition_type','取得方式','building_acq',r.acquisition_type)}
+      ${fieldText('acquisition_cost','取得成本（買價）',r.acquisition_cost,{type:'number',hint:'自地自建為營造成本'})}
+      ${fieldText('fee_deed_tax','契稅',r.fee_deed_tax,{type:'number'})}
+      ${fieldText('fee_stamp_duty','印花稅',r.fee_stamp_duty,{type:'number'})}
+      ${fieldText('fee_lawyer','代書費',r.fee_lawyer,{type:'number'})}
+      ${fieldText('fee_broker','仲介費',r.fee_broker,{type:'number'})}
+      ${fieldText('fee_registration','登記規費',r.fee_registration,{type:'number'})}
+      ${fieldText('fee_other','其他費用',r.fee_other,{type:'number'})}
+      <div class="field full" style="background:var(--accent-dim);border-radius:8px;padding:12px 16px;margin-top:4px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:16px;font-weight:600;color:var(--accent)">總投入成本（買價＋費用）</span>
+          <span style="font-size:20px;font-weight:700;color:var(--accent)" class="mono">$ <span id="costTotal">0</span></span>
+        </div>
       </div>
 
       <div class="section-label">他項權利與文件</div>
