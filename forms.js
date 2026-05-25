@@ -357,7 +357,40 @@ function saveBuilding(id) {
   pickedLands.forEach(l => {
     run("INSERT INTO building_lands (building_id,land_id,created_at) VALUES (?,?,?)", [bid, l.land_id, now()]);
   });
+  // 自動建立 / 更新對應的不動產物件
+  autoLinkProperty(bid, f);
   autoSave(); closeModal(); renderBuildingList();
+}
+
+/* 建物存檔後，自動建立對應的不動產物件並指派權狀（建物+坐落土地）。
+   若此建物已屬於某物件，則只更新該物件的土地指派，不重複建。 */
+function autoLinkProperty(buildingId, f) {
+  // 查這個建物目前是否已歸屬某物件
+  let pa = query("SELECT property_id FROM deed_assignments WHERE deed_type='building' AND building_id=? AND is_current=1", [buildingId]);
+  let propId;
+  if (pa.length) {
+    propId = pa[0].property_id;
+  } else {
+    // 建新物件，名稱用門牌，沒有就用建號
+    const pname = (f.door_address && f.door_address.trim()) ? f.door_address.trim() : ('建號 ' + (f.building_number||''));
+    run(`INSERT INTO properties (name,door_address,property_type,current_status,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
+      [pname, f.door_address||null, 'land_and_building', 'self_use', now(), now()]);
+    propId = query("SELECT last_insert_rowid() AS id")[0].id;
+    // 指派這個建物
+    run("INSERT INTO deed_assignments (property_id,deed_type,building_id,start_date,is_current,created_at) VALUES (?,?,?,?,1,?)",
+      [propId, 'building', buildingId, now(), now()]);
+  }
+  // 同步坐落土地到該物件：先移除此物件舊的土地指派，再加入目前 pickedLands
+  // （只動「由建物坐落帶入」的土地關聯，用 notes 標記來區分手動指派）
+  run("DELETE FROM deed_assignments WHERE property_id=? AND deed_type='land' AND notes='auto_by_building' AND is_current=1", [propId]);
+  pickedLands.forEach(l => {
+    // 若該土地已在此物件（不論來源），就不重複加
+    const exists = query("SELECT 1 FROM deed_assignments WHERE property_id=? AND deed_type='land' AND land_id=? AND is_current=1", [propId, l.land_id]);
+    if (!exists.length) {
+      run("INSERT INTO deed_assignments (property_id,deed_type,land_id,start_date,is_current,notes,created_at) VALUES (?,?,?,?,1,?,?)",
+        [propId, 'land', l.land_id, now(), 'auto_by_building', now()]);
+    }
+  });
 }
 function deleteBuilding(id) {
   const r = query("SELECT building_number FROM buildings WHERE building_id=?", [id])[0];
