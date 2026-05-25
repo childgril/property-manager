@@ -109,7 +109,8 @@ function openLandForm(id) {
       ${fieldText('district','鄉鎮市區',r.district,{ph:'大安區'})}
       ${fieldText('section_name','段/小段',r.section_name,{ph:'大安段三小段'})}
       ${fieldText('land_number','地號',r.land_number,{req:true,ph:'0512-0000'})}
-      ${fieldText('title_deed_number','權狀字號',r.title_deed_number,{full:true})}
+      ${fieldText('title_deed_number','權狀字號',r.title_deed_number)}
+      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
       ${fieldSelect('land_category','地目（權狀上的字）','land_category',r.land_category)}
       ${fieldText('zoning','使用分區（都市計畫）',r.zoning,{ph:'第三種住宅區（無則免填）'})}
       ${fieldText('land_grade','等則（農地地價等級，無則免填）',r.land_grade,{ph:'例：19'})}
@@ -132,8 +133,16 @@ function openLandForm(id) {
       <div class="section-label">生命週期</div>
       ${fieldRocDate('acquired_at','登記日期',r.acquired_at,{hint:'這張權狀的「出生」'})}
       ${fieldSelect('acquisition_type','取得方式','land_acq',r.acquisition_type)}
-      ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number'})}
+      ${fieldText('acquisition_cost','取得成本（買價）',r.acquisition_cost,{type:'number'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','land_status',r.lifecycle_status||'held')}
+
+      <div class="section-label">取得相關費用（買進時的各項花費，選填）</div>
+      ${fieldText('fee_land_increment_tax','土地增值稅',r.fee_land_increment_tax,{type:'number'})}
+      ${fieldText('fee_stamp_duty','印花稅',r.fee_stamp_duty,{type:'number'})}
+      ${fieldText('fee_lawyer','代書費',r.fee_lawyer,{type:'number'})}
+      ${fieldText('fee_broker','仲介費',r.fee_broker,{type:'number'})}
+      ${fieldText('fee_registration','登記規費',r.fee_registration,{type:'number'})}
+      ${fieldText('fee_other','其他費用',r.fee_other,{type:'number'})}
       <div class="field full">
         <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap">
           <div>
@@ -159,7 +168,6 @@ function openLandForm(id) {
 
       <div class="section-label">他項權利與文件</div>
       <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
-      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
       ${fieldText('other_rights_notes','其他他項權利',r.other_rights_notes,{full:true,ph:'地上權、地役權等'})}
       ${fieldText('notes','備註',r.notes,{full:true})}
     </div></div>
@@ -175,7 +183,7 @@ function saveLand(id) {
   // 民國年日期欄位：從三格組成西元
   f.acquired_at = readRocDate('acquired_at');
   f.disposed_at = readRocDate('disposed_at');
-  const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','land_grade','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
+  const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','land_grade','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_land_increment_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
   if (id) {
     run(`UPDATE lands SET ${cols.map(c=>c+'=?').join(',')}, updated_at=? WHERE land_id=?`, [...vals, now(), id]);
@@ -206,7 +214,8 @@ function openBuildingForm(id) {
       ${fieldText('section_name','段/小段',r.section_name)}
       ${fieldText('building_number','建號',r.building_number,{req:true,ph:'02841-000'})}
       ${fieldText('door_address','門牌',r.door_address,{full:true})}
-      ${fieldText('title_deed_number','權狀字號',r.title_deed_number,{full:true})}
+      ${fieldText('title_deed_number','權狀字號',r.title_deed_number)}
+      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
       ${fieldSelect('building_type','建物型態','building_type',r.building_type)}
       ${fieldSelectOrText('structure','主要構造',['鋼筋混凝土造','加強磚造','鋼骨鋼筋混凝土造','鋼骨造','磚造','木造','土造','石造'],r.structure)}
       ${fieldText('total_floors','總樓層',r.total_floors,{type:'number'})}
@@ -250,8 +259,16 @@ function openBuildingForm(id) {
       <div class="section-label">生命週期</div>
       ${fieldRocDate('acquired_at','登記日期',r.acquired_at,{hint:'自地自建為保存登記日'})}
       ${fieldSelect('acquisition_type','取得方式','building_acq',r.acquisition_type)}
-      ${fieldText('acquisition_cost','取得成本',r.acquisition_cost,{type:'number',hint:'自地自建為營造成本'})}
+      ${fieldText('acquisition_cost','取得成本（買價）',r.acquisition_cost,{type:'number',hint:'自地自建為營造成本'})}
       ${fieldSelect('lifecycle_status','生命週期狀態','building_status',r.lifecycle_status||'held')}
+
+      <div class="section-label">取得相關費用（買進時的各項花費，選填）</div>
+      ${fieldText('fee_deed_tax','契稅',r.fee_deed_tax,{type:'number'})}
+      ${fieldText('fee_stamp_duty','印花稅',r.fee_stamp_duty,{type:'number'})}
+      ${fieldText('fee_lawyer','代書費',r.fee_lawyer,{type:'number'})}
+      ${fieldText('fee_broker','仲介費',r.fee_broker,{type:'number'})}
+      ${fieldText('fee_registration','登記規費',r.fee_registration,{type:'number'})}
+      ${fieldText('fee_other','其他費用',r.fee_other,{type:'number'})}
       <div class="field full">
         <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap">
           <div>
@@ -277,7 +294,6 @@ function openBuildingForm(id) {
 
       <div class="section-label">他項權利與文件</div>
       <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
-      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location)}
       ${fieldText('other_rights_notes','其他他項權利',r.other_rights_notes,{full:true})}
       ${fieldText('notes','備註',r.notes,{full:true})}
     </div></div>
@@ -404,7 +420,7 @@ function saveBuilding(id) {
   // 附屬建物面積合計、共有部分面積合計（自動由清單加總）
   f.auxiliary_area_sqm = auxRows.reduce((s,a)=> s + (parseFloat(a.area_sqm)||0), 0) || null;
   f.common_area_sqm = commonRows.reduce((s,c)=> s + (parseFloat(c.area_sqm)||0), 0) || null;
-  const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','located_land_numbers','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','disposed_at','disposal_type','lifecycle_status','notes'];
+  const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','located_land_numbers','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_deed_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
   let bid = id;
   if (id) {
@@ -502,6 +518,12 @@ function openDeedDetail(type, id) {
     add('面積', `<span class="mono">${fmt(r.total_area_sqm)} ㎡</span>`);
     add('坪數', `<span class="mono">${sqm2ping(r.total_area_sqm)} 坪</span>`);
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
+    { const fees = (r.fee_land_increment_tax||0)+(r.fee_stamp_duty||0)+(r.fee_lawyer||0)+(r.fee_broker||0)+(r.fee_registration||0)+(r.fee_other||0);
+      const total = (r.acquisition_cost||0) + fees;
+      const feeDetail = [['土地增值稅',r.fee_land_increment_tax],['印花稅',r.fee_stamp_duty],['代書費',r.fee_lawyer],['仲介費',r.fee_broker],['登記規費',r.fee_registration],['其他',r.fee_other]].filter(x=>x[1]).map(x=>`${x[0]} ${fmt(x[1])}`).join('、');
+      if (fees>0) add('取得費用', `<span class="mono">${fmt(fees)}</span>${feeDetail?`<br><span style="font-size:13px;color:var(--text-dim)">${feeDetail}</span>`:''}`);
+      if (total>0) add('總投入成本', `<span class="mono" style="font-weight:700;color:var(--accent)">${fmt(total)}</span>`);
+    }
     add('持分', (r.share_numerator&&r.share_denominator)?`<span class="mono">${r.share_numerator}/${r.share_denominator}</span>`:'全部（1/1）');
     add('登記日期', rocDate(r.acquired_at));
     add('狀態', `<span class="badge ${r.lifecycle_status}">${enumLabel('land_status',r.lifecycle_status)}</span>`);
@@ -518,6 +540,12 @@ function openDeedDetail(type, id) {
     add('主建物', `<span class="mono">${fmt(r.main_area_sqm)} ㎡</span>`);
     add('總登記面積', `<span class="mono">${fmt(r.total_registered_area_sqm)} ㎡（${sqm2ping(r.total_registered_area_sqm)} 坪）</span>`);
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
+    { const fees = (r.fee_deed_tax||0)+(r.fee_stamp_duty||0)+(r.fee_lawyer||0)+(r.fee_broker||0)+(r.fee_registration||0)+(r.fee_other||0);
+      const total = (r.acquisition_cost||0) + fees;
+      const feeDetail = [['契稅',r.fee_deed_tax],['印花稅',r.fee_stamp_duty],['代書費',r.fee_lawyer],['仲介費',r.fee_broker],['登記規費',r.fee_registration],['其他',r.fee_other]].filter(x=>x[1]).map(x=>`${x[0]} ${fmt(x[1])}`).join('、');
+      if (fees>0) add('取得費用', `<span class="mono">${fmt(fees)}</span>${feeDetail?`<br><span style="font-size:13px;color:var(--text-dim)">${feeDetail}</span>`:''}`);
+      if (total>0) add('總投入成本', `<span class="mono" style="font-weight:700;color:var(--accent)">${fmt(total)}</span>`);
+    }
     add('登記日期', rocDate(r.acquired_at));
     add('權狀正本位置', esc(r.deed_physical_location)||'—');
     // 坐落地號（從關聯表，可點擊跳到土地權狀）
