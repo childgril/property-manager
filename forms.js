@@ -3,7 +3,17 @@
    ============================================================ */
 
 function closeModal() { $('#modalBg').classList.remove('show'); }
-function openModal(html) { $('#modal').innerHTML = html; $('#modalBg').classList.add('show'); }
+function openModal(html) {
+  $('#modal').innerHTML = html;
+  $('#modalBg').classList.add('show');
+  // 若表單有合計欄，綁定費用欄位即時加總並先算一次
+  if (document.getElementById('costTotal')) {
+    $('#modal').addEventListener('input', e => {
+      if (e.target.name && (e.target.name === 'acquisition_cost' || e.target.name.startsWith('fee_'))) updateCostTotal();
+    });
+    updateCostTotal();
+  }
+}
 
 /* 即時把平方公尺換算成坪，顯示在指定的提示元素 */
 function updatePing(input, hintId) {
@@ -11,6 +21,18 @@ function updatePing(input, hintId) {
   const el = document.getElementById(hintId);
   if (!el) return;
   el.textContent = (v && v > 0) ? `≈ ${(v * 0.3025).toFixed(2)} 坪` : '';
+}
+
+/* 即時加總「取得成本＋各項費用」，顯示在合計欄 */
+function updateCostTotal() {
+  const names = ['acquisition_cost','fee_land_increment_tax','fee_deed_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other'];
+  let sum = 0;
+  names.forEach(n => {
+    const el = document.querySelector(`#modal [name="${n}"]`);
+    if (el) sum += parseFloat(el.value) || 0;
+  });
+  const out = document.getElementById('costTotal');
+  if (out) out.textContent = sum > 0 ? sum.toLocaleString('zh-TW') : '0';
 }
 
 /* 民國年日期欄位（年/月/日三格），name 為基底，存檔時組成西元
@@ -100,7 +122,8 @@ function readForm() {
 
 /* ---------- 土地表單 ---------- */
 function openLandForm(id) {
-  const r = id ? query("SELECT * FROM lands WHERE land_id=?", [id])[0] : {};
+  const r = id ? query("SELECT * FROM lands WHERE land_id=?", [id])[0] : (window.__landPreset || {});
+  window.__landPreset = null;
   openModal(`
     <div class="modal-head"><h3>${id?'編輯':'新增'}土地權狀</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -143,6 +166,12 @@ function openLandForm(id) {
       ${fieldText('fee_broker','仲介費',r.fee_broker,{type:'number'})}
       ${fieldText('fee_registration','登記規費',r.fee_registration,{type:'number'})}
       ${fieldText('fee_other','其他費用',r.fee_other,{type:'number'})}
+      <div class="field full" style="background:var(--accent-dim);border-radius:8px;padding:12px 16px;margin-top:4px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:16px;font-weight:600;color:var(--accent)">總投入成本（買價＋費用）</span>
+          <span style="font-size:20px;font-weight:700;color:var(--accent)" class="mono">$ <span id="costTotal">0</span></span>
+        </div>
+      </div>
       <div class="field full">
         <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap">
           <div>
@@ -201,10 +230,26 @@ function deleteLand(id) {
   run("DELETE FROM deed_events WHERE deed_type='land' AND deed_id=?", [id]);
   autoSave(); toast('已刪除'); renderLandList();
 }
+/* 複製土地權狀：帶入所有欄位，但清空地號、權狀字號（這兩個一定不同） */
+function duplicateLand(id) {
+  const r = query("SELECT * FROM lands WHERE land_id=?", [id])[0];
+  if (!r) return;
+  const preset = Object.assign({}, r);
+  delete preset.land_id;
+  // 清空：識別欄、費用、日期、處分（這些每筆都不同，不帶）
+  ['land_number','title_deed_number',
+   'acquisition_cost','fee_land_increment_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other',
+   'acquired_at','disposed_at','disposal_type','announced_value_date'
+  ].forEach(k => preset[k] = '');
+  window.__landPreset = preset;
+  openLandForm();
+  toast('已複製基本資料，請填入地號等資料');
+}
 
 /* ---------- 建物表單 ---------- */
 function openBuildingForm(id) {
-  const r = id ? query("SELECT * FROM buildings WHERE building_id=?", [id])[0] : {};
+  const r = id ? query("SELECT * FROM buildings WHERE building_id=?", [id])[0] : (window.__bldPreset || {});
+  window.__bldPreset = null;
   openModal(`
     <div class="modal-head"><h3>${id?'編輯':'新增'}建物權狀</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -269,6 +314,12 @@ function openBuildingForm(id) {
       ${fieldText('fee_broker','仲介費',r.fee_broker,{type:'number'})}
       ${fieldText('fee_registration','登記規費',r.fee_registration,{type:'number'})}
       ${fieldText('fee_other','其他費用',r.fee_other,{type:'number'})}
+      <div class="field full" style="background:var(--accent-dim);border-radius:8px;padding:12px 16px;margin-top:4px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:16px;font-weight:600;color:var(--accent)">總投入成本（買價＋費用）</span>
+          <span style="font-size:20px;font-weight:700;color:var(--accent)" class="mono">$ <span id="costTotal">0</span></span>
+        </div>
+      </div>
       <div class="field full">
         <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap">
           <div>
@@ -302,8 +353,9 @@ function openBuildingForm(id) {
       <button class="btn" onclick="saveBuilding(${id||0})">儲存</button></div>
     </div>`);
   // 載入既有的附屬建物與共同使用部分（編輯時）
-  auxRows = id ? query("SELECT * FROM building_auxiliaries WHERE building_id=?", [id]).map(a => ({aux_type:a.aux_type, area_sqm:a.area_sqm, share_numerator:a.share_numerator, share_denominator:a.share_denominator})) : [];
-  commonRows = id ? query("SELECT * FROM common_areas WHERE building_id=?", [id]).map(c => ({section_name:c.section_name, common_building_number:c.common_building_number, area_sqm:c.area_sqm, share_numerator:c.share_numerator, share_denominator:c.share_denominator})) : [];
+  auxRows = id ? query("SELECT * FROM building_auxiliaries WHERE building_id=?", [id]).map(a => ({aux_type:a.aux_type, area_sqm:a.area_sqm, share_numerator:a.share_numerator, share_denominator:a.share_denominator})) : (window.__bldPresetAux || []);
+  commonRows = id ? query("SELECT * FROM common_areas WHERE building_id=?", [id]).map(c => ({section_name:c.section_name, common_building_number:c.common_building_number, area_sqm:c.area_sqm, share_numerator:c.share_numerator, share_denominator:c.share_denominator})) : (window.__bldPresetCommon || []);
+  window.__bldPresetAux = null; window.__bldPresetCommon = null;
   renderAuxList();
   renderCommonList();
   // 載入土地權狀勾選清單
@@ -492,6 +544,23 @@ function deleteBuilding(id) {
   run("DELETE FROM building_auxiliaries WHERE building_id=?", [id]);
   run("DELETE FROM common_areas WHERE building_id=?", [id]);
   autoSave(); toast('已刪除'); renderBuildingList();
+}
+/* 複製建物權狀：只帶基本資料，費用/日期不帶。附屬建物/共同使用部分一併複製 */
+function duplicateBuilding(id) {
+  const r = query("SELECT * FROM buildings WHERE building_id=?", [id])[0];
+  if (!r) return;
+  const preset = Object.assign({}, r);
+  delete preset.building_id;
+  ['building_number','title_deed_number',
+   'acquisition_cost','fee_deed_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other',
+   'acquired_at','disposed_at','disposal_type','completion_date'
+  ].forEach(k => preset[k] = '');
+  window.__bldPreset = preset;
+  // 複製附屬建物與共同使用部分（不含坐落土地關聯，避免誤連）
+  window.__bldPresetAux = query("SELECT aux_type,area_sqm,share_numerator,share_denominator FROM building_auxiliaries WHERE building_id=?", [id]);
+  window.__bldPresetCommon = query("SELECT section_name,common_building_number,area_sqm,share_numerator,share_denominator FROM common_areas WHERE building_id=?", [id]);
+  openBuildingForm();
+  toast('已複製，請填入新的建號與權狀字號');
 }
 
 /* ============================================================

@@ -507,6 +507,7 @@ function renderLandList() {
         <td>${r.has_mortgage?'有':'無'}</td>
         <td onclick="event.stopPropagation()"><div class="row-actions">
           <button class="icon-btn" onclick="openLandForm(${r.land_id})">編輯</button>
+          <button class="icon-btn" onclick="duplicateLand(${r.land_id})">複製</button>
           <button class="icon-btn del" onclick="deleteLand(${r.land_id})">刪除</button>
         </div></td></tr>`;
     });
@@ -573,6 +574,7 @@ function renderBuildingList() {
         <td>${r.has_mortgage?'有':'無'}</td>
         <td onclick="event.stopPropagation()"><div class="row-actions">
           <button class="icon-btn" onclick="openBuildingForm(${r.building_id})">編輯</button>
+          <button class="icon-btn" onclick="duplicateBuilding(${r.building_id})">複製</button>
           <button class="icon-btn del" onclick="deleteBuilding(${r.building_id})">刪除</button>
         </div></td></tr>`;
     });
