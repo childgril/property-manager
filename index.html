@@ -154,8 +154,17 @@
 <div class="modal-bg" id="modalBg"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="app.js?v=20260526i"></script>
-<script src="forms.js?v=20260526i"></script>
-<script src="modules.js?v=20260526i"></script>
+<script>
+/* 防止滑鼠滾輪不小心改掉數字欄位的值：當數字框聚焦時，滾輪只捲頁面、不調整數字 */
+document.addEventListener('wheel', function(e){
+  const el = document.activeElement;
+  if (el && el.type === 'number' && el === e.target) {
+    el.blur();              // 讓它失焦，滾輪就不會改值
+  }
+}, { passive: true });
+</script>
+<script src="app.js?v=20260526j"></script>
+<script src="forms.js?v=20260526j"></script>
+<script src="modules.js?v=20260526j"></script>
 </body>
 </html>
