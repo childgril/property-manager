@@ -49,11 +49,11 @@ function fieldRocDate(name, label, westValue, opts={}) {
     <label>${label}（民國年）${opts.req?' <span class="req">*</span>':''}</label>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap">
       <span style="color:var(--text-dim)">民國</span>
-      <input data-roc="${name}" data-part="y" type="number" value="${roc.y}" placeholder="108" style="width:90px;text-align:center" oninput="updateRocWest('${name}')">
+      <input data-roc="${name}" data-part="y" type="number" step="any" value="${roc.y}" placeholder="108" style="width:90px;text-align:center" oninput="updateRocWest('${name}')">
       <span style="color:var(--text-dim)">年</span>
-      <input data-roc="${name}" data-part="m" type="number" value="${roc.m}" placeholder="3" style="width:72px;text-align:center" oninput="updateRocWest('${name}')">
+      <input data-roc="${name}" data-part="m" type="number" step="any" value="${roc.m}" placeholder="3" style="width:72px;text-align:center" oninput="updateRocWest('${name}')">
       <span style="color:var(--text-dim)">月</span>
-      <input data-roc="${name}" data-part="d" type="number" value="${roc.d}" placeholder="15" style="width:72px;text-align:center" oninput="updateRocWest('${name}')">
+      <input data-roc="${name}" data-part="d" type="number" step="any" value="${roc.d}" placeholder="15" style="width:72px;text-align:center" oninput="updateRocWest('${name}')">
       <span style="color:var(--text-dim)">日</span>
       <span id="west_${name}" style="color:var(--accent);font-weight:600;white-space:nowrap;margin-left:6px">${westValue?'= 西元'+westValue:''}</span>
     </div>
@@ -85,7 +85,7 @@ function selectOptions(group, current) {
 function fieldText(name, label, val, opts={}) {
   return `<div class="field ${opts.full?'full':''}">
     <label>${label}${opts.req?' <span class="req">*</span>':''}</label>
-    <input name="${name}" value="${esc(val)}" ${opts.type?`type="${opts.type}"`:''} ${opts.ph?`placeholder="${opts.ph}"`:''}>
+    <input name="${name}" value="${esc(val)}" ${opts.type?`type="${opts.type}"`:''} ${opts.type==='number'?'step="any"':''} ${opts.ph?`placeholder="${opts.ph}"`:''}>
     ${opts.hint?`<div class="hint">${opts.hint}</div>`:''}</div>`;
 }
 function fieldSelect(name, label, group, val) {
@@ -149,7 +149,7 @@ function openLandForm(id) {
       <div class="field">
         <label>地號總面積㎡</label>
         <div style="display:flex;align-items:center;gap:10px">
-          <input name="total_area_sqm" type="number" value="${esc(r.total_area_sqm)}" oninput="updatePing(this,'ping_total')" style="flex:1">
+          <input name="total_area_sqm" type="number" step="any" value="${esc(r.total_area_sqm)}" oninput="updatePing(this,'ping_total')" style="flex:1">
           <span id="ping_total" style="color:var(--accent);font-weight:600;white-space:nowrap;min-width:80px">${r.total_area_sqm?'≈ '+sqm2ping(r.total_area_sqm)+' 坪':''}</span>
         </div>
       </div>
@@ -168,11 +168,11 @@ function openLandForm(id) {
             <label style="display:block;font-size:15px;color:var(--text);font-weight:500;margin-bottom:6px">處分日（民國年）</label>
             <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
               <span style="color:var(--text-dim)">民國</span>
-              <input data-roc="disposed_at" data-part="y" type="number" value="${westToRoc(r.disposed_at).y}" placeholder="108" style="width:80px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <input data-roc="disposed_at" data-part="y" type="number" step="any" value="${westToRoc(r.disposed_at).y}" placeholder="108" style="width:80px;text-align:center" oninput="updateRocWest('disposed_at')">
               <span style="color:var(--text-dim)">年</span>
-              <input data-roc="disposed_at" data-part="m" type="number" value="${westToRoc(r.disposed_at).m}" placeholder="3" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <input data-roc="disposed_at" data-part="m" type="number" step="any" value="${westToRoc(r.disposed_at).m}" placeholder="3" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
               <span style="color:var(--text-dim)">月</span>
-              <input data-roc="disposed_at" data-part="d" type="number" value="${westToRoc(r.disposed_at).d}" placeholder="15" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <input data-roc="disposed_at" data-part="d" type="number" step="any" value="${westToRoc(r.disposed_at).d}" placeholder="15" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
               <span style="color:var(--text-dim)">日</span>
             </div>
             <span id="west_disposed_at" style="color:var(--accent);font-weight:600;font-size:13px">${r.disposed_at?'= 西元'+r.disposed_at:''}</span>
@@ -300,17 +300,17 @@ function openBuildingForm(id) {
       </div>
 
       <div class="section-label">面積</div>
-      <div class="field">
-        ${fieldText('main_area_sqm','主建物㎡',r.main_area_sqm,{type:'number'})}
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:nowrap;white-space:nowrap">
-          <span style="color:var(--text-dim);font-size:14px">權利範圍</span>
-          <input name="share_numerator" type="number" value="${esc(r.share_numerator)}" placeholder="分子" style="width:72px;text-align:center">
+      <div class="field full">
+        <label>主建物㎡　權利範圍</label>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;white-space:nowrap">
+          <input name="main_area_sqm" type="number" step="any" value="${esc(r.main_area_sqm)}" placeholder="主建物面積" style="width:140px">
+          <span style="color:var(--text-dim);margin-left:6px">權利範圍</span>
+          <input name="share_numerator" type="number" step="any" value="${esc(r.share_numerator)}" placeholder="分子" style="width:72px;text-align:center">
           <span style="color:var(--text-dim)">/</span>
-          <input name="share_denominator" type="number" value="${esc(r.share_denominator)}" placeholder="分母" style="width:72px;text-align:center">
+          <input name="share_denominator" type="number" step="any" value="${esc(r.share_denominator)}" placeholder="分母" style="width:72px;text-align:center">
           <span style="color:var(--text-dim);font-size:13px">不填=全部</span>
         </div>
       </div>
-      <div class="field"></div>
       <div class="field full">
         <label>其他面積項目（夾層、地下室等，可多筆）</label>
         <div id="extraAreaList"></div>
@@ -319,7 +319,7 @@ function openBuildingForm(id) {
       <div class="field full">
         <label>權狀總登記㎡</label>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <input name="total_registered_area_sqm" type="number" value="${esc(r.total_registered_area_sqm)}" oninput="updatePing(this,'ping_bld_total')" style="flex:1;min-width:160px">
+          <input name="total_registered_area_sqm" type="number" step="any" value="${esc(r.total_registered_area_sqm)}" oninput="updatePing(this,'ping_bld_total')" style="flex:1;min-width:160px">
           <span id="ping_bld_total" style="color:var(--accent);font-weight:600;white-space:nowrap;min-width:80px">${r.total_registered_area_sqm?'≈ '+sqm2ping(r.total_registered_area_sqm)+' 坪':''}</span>
           <button type="button" class="btn ghost" style="white-space:nowrap" onclick="fillTotalFromSum()">↙ 帶入加總</button>
         </div>
@@ -343,11 +343,11 @@ function openBuildingForm(id) {
             <label style="display:block;font-size:15px;color:var(--text);font-weight:500;margin-bottom:6px">處分日（民國年）</label>
             <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
               <span style="color:var(--text-dim)">民國</span>
-              <input data-roc="disposed_at" data-part="y" type="number" value="${westToRoc(r.disposed_at).y}" placeholder="108" style="width:80px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <input data-roc="disposed_at" data-part="y" type="number" step="any" value="${westToRoc(r.disposed_at).y}" placeholder="108" style="width:80px;text-align:center" oninput="updateRocWest('disposed_at')">
               <span style="color:var(--text-dim)">年</span>
-              <input data-roc="disposed_at" data-part="m" type="number" value="${westToRoc(r.disposed_at).m}" placeholder="3" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <input data-roc="disposed_at" data-part="m" type="number" step="any" value="${westToRoc(r.disposed_at).m}" placeholder="3" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
               <span style="color:var(--text-dim)">月</span>
-              <input data-roc="disposed_at" data-part="d" type="number" value="${westToRoc(r.disposed_at).d}" placeholder="15" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
+              <input data-roc="disposed_at" data-part="d" type="number" step="any" value="${westToRoc(r.disposed_at).d}" placeholder="15" style="width:60px;text-align:center" oninput="updateRocWest('disposed_at')">
               <span style="color:var(--text-dim)">日</span>
             </div>
             <span id="west_disposed_at" style="color:var(--accent);font-weight:600;font-size:13px">${r.disposed_at?'= 西元'+r.disposed_at:''}</span>
@@ -470,7 +470,7 @@ function renderExtraAreaList() {
   box.innerHTML = extraRows.map((a,i) => `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <input placeholder="名稱（如：夾層）" value="${esc(a.area_label)??''}" oninput="extraRows[${i}].area_label=this.value" style="width:160px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
-      <input type="number" placeholder="面積㎡" value="${a.area_sqm??''}" oninput="extraRows[${i}].area_sqm=this.value;updateAreaSum()" style="width:110px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+      <input type="number" step="any" placeholder="面積㎡" value="${a.area_sqm??''}" oninput="extraRows[${i}].area_sqm=this.value;updateAreaSum()" style="width:110px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
       <span style="color:var(--text-dim);font-size:14px">㎡</span>
       <button type="button" class="icon-btn del" onclick="removeExtraAreaRow(${i})">刪除</button>
     </div>`).join('');
@@ -504,11 +504,11 @@ function renderAuxList() {
       <select onchange="auxRows[${i}].aux_type=this.value" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
         ${ENUMS.aux_type.map(([v,l])=>`<option value="${v}" ${a.aux_type===v?'selected':''}>${l}</option>`).join('')}
       </select>
-      <input type="number" placeholder="面積㎡" value="${a.area_sqm??''}" oninput="auxRows[${i}].area_sqm=this.value" style="width:100px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+      <input type="number" step="any" placeholder="面積㎡" value="${a.area_sqm??''}" oninput="auxRows[${i}].area_sqm=this.value" style="width:100px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
       <span style="color:var(--text-dim);font-size:14px">權利範圍</span>
-      <input type="number" placeholder="分子" value="${a.share_numerator??''}" oninput="auxRows[${i}].share_numerator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
+      <input type="number" step="any" placeholder="分子" value="${a.share_numerator??''}" oninput="auxRows[${i}].share_numerator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
       <span style="color:var(--text-dim)">/</span>
-      <input type="number" placeholder="分母" value="${a.share_denominator??''}" oninput="auxRows[${i}].share_denominator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
+      <input type="number" step="any" placeholder="分母" value="${a.share_denominator??''}" oninput="auxRows[${i}].share_denominator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
       <button type="button" class="icon-btn del" onclick="removeAuxRow(${i})">刪除</button>
     </div>`).join('');
 }
@@ -523,11 +523,11 @@ function renderCommonList() {
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <input placeholder="段" value="${esc(c.section_name)??''}" oninput="commonRows[${i}].section_name=this.value" style="width:120px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
       <input placeholder="建號" value="${esc(c.common_building_number)??''}" oninput="commonRows[${i}].common_building_number=this.value" style="width:130px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
-      <input type="number" placeholder="面積㎡" value="${c.area_sqm??''}" oninput="commonRows[${i}].area_sqm=this.value" style="width:100px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+      <input type="number" step="any" placeholder="面積㎡" value="${c.area_sqm??''}" oninput="commonRows[${i}].area_sqm=this.value" style="width:100px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
       <span style="color:var(--text-dim);font-size:14px">權利範圍</span>
-      <input type="number" placeholder="分子" value="${c.share_numerator??''}" oninput="commonRows[${i}].share_numerator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
+      <input type="number" step="any" placeholder="分子" value="${c.share_numerator??''}" oninput="commonRows[${i}].share_numerator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
       <span style="color:var(--text-dim)">/</span>
-      <input type="number" placeholder="分母" value="${c.share_denominator??''}" oninput="commonRows[${i}].share_denominator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
+      <input type="number" step="any" placeholder="分母" value="${c.share_denominator??''}" oninput="commonRows[${i}].share_denominator=this.value" style="width:70px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px;text-align:center">
       <button type="button" class="icon-btn del" onclick="removeCommonRow(${i})">刪除</button>
     </div>`).join('');
 }
