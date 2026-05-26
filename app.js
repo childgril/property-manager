@@ -452,49 +452,44 @@ function renderDashboard() {
     html += `<div class="note">👋 目前沒有任何資料。你可以點左下角「🌱 載入範例資料」看看系統怎麼運作，或直接到「土地權狀」「建物權狀」開始新增。所有資料只存在你的電腦，記得用「💾 儲存到檔案」匯出備份。</div>`;
   } else {
     const shareTxt = r => (r.share_numerator&&r.share_denominator)?`${r.share_numerator}/${r.share_denominator}`:'全部';
-    const lands = query("SELECT * FROM lands ORDER BY section_name, land_number");
-    const blds = query("SELECT * FROM buildings ORDER BY building_number");
+    const props = query("SELECT * FROM properties ORDER BY property_id");
 
-    // 左：土地權狀表格
-    let landRows = lands.length ? lands.map((l,i) => `
-      <tr class="clickable" onclick="openDeedDetail('land',${l.land_id})">
-        <td>${i+1}</td>
-        <td>${esc(l.deed_physical_location)||'—'}</td>
-        <td class="mono">${esc(l.title_deed_number)||'—'}</td>
-        <td>${esc(l.section_name)||'—'}</td>
-        <td class="mono"><b>${esc(l.land_number)}</b></td>
-        <td class="mono right">${fmt(l.total_area_sqm)}</td>
-        <td>${enumLabel('land_category',l.land_category)}</td>
-        <td>${shareTxt(l)}</td>
-        <td class="mono right">${l.acquisition_cost?'$'+fmt(l.acquisition_cost):'—'}</td>
-      </tr>`).join('') : `<tr><td colspan="9" style="text-align:center;color:var(--text-dim);padding:14px">— 無土地 —</td></tr>`;
+    // 一物件一行：左格列該物件的土地、右格列建物
+    const landBlock = l => `<div class="clickable" onclick="event.stopPropagation();openDeedDetail('land',${l.land_id})" style="cursor:pointer;padding:3px 0">
+      <span class="mono"><b>${esc(l.section_name)||''} ${esc(l.land_number)}</b></span>
+      <span style="color:var(--text-dim)"> ${esc(l.land_category)||''} ${fmt(l.total_area_sqm)}㎡ ${shareTxt(l)}</span>
+      ${l.deed_physical_location?`<span style="color:var(--text-dim)"> 〔${esc(l.deed_physical_location)}〕</span>`:''}
+    </div>`;
+    const bldBlock = b => `<div class="clickable" onclick="event.stopPropagation();openDeedDetail('building',${b.building_id})" style="cursor:pointer;padding:3px 0">
+      <span class="mono"><b>${esc(b.building_number)}</b></span>
+      <span style="color:var(--text-dim)"> ${esc(b.door_address)||''} ${fmt(b.total_registered_area_sqm||b.main_area_sqm)}㎡ ${shareTxt(b)}</span>
+      ${b.deed_physical_location?`<span style="color:var(--text-dim)"> 〔${esc(b.deed_physical_location)}〕</span>`:''}
+    </div>`;
 
-    // 右：建物權狀表格
-    let bldRows = blds.length ? blds.map((b,i) => `
-      <tr class="clickable" onclick="openDeedDetail('building',${b.building_id})">
-        <td>${i+1}</td>
-        <td>${esc(b.deed_physical_location)||'—'}</td>
-        <td class="mono">${esc(b.title_deed_number)||'—'}</td>
-        <td class="mono"><b>${esc(b.building_number)}</b></td>
-        <td class="mono right">${fmt(b.total_registered_area_sqm||b.main_area_sqm)}</td>
-        <td>${esc(b.door_address)||'—'}</td>
-        <td>${shareTxt(b)}</td>
-        <td class="mono right">${b.acquisition_cost?'$'+fmt(b.acquisition_cost):'—'}</td>
-      </tr>`).join('') : `<tr><td colspan="8" style="text-align:center;color:var(--text-dim);padding:14px">— 無建物 —</td></tr>`;
+    let rows = '';
+    props.forEach((p,i) => {
+      const las = query("SELECT * FROM lands l WHERE l.land_id IN (SELECT land_id FROM deed_assignments WHERE property_id=? AND deed_type='land' AND is_current=1) ORDER BY section_name,land_number", [p.property_id]);
+      const bls = query("SELECT * FROM buildings b WHERE b.building_id IN (SELECT building_id FROM deed_assignments WHERE property_id=? AND deed_type='building' AND is_current=1) ORDER BY building_number", [p.property_id]);
+      const landCell = las.length ? las.map(landBlock).join('') : '<span style="color:var(--text-dim)">—</span>';
+      const bldCell = bls.length ? bls.map(bldBlock).join('') : '<span style="color:var(--text-dim)">—</span>';
+      const typeLabel = (las.length && bls.length) ? '土地+建物' : (las.length ? '純土地' : '純建物');
+      rows += `<tr>
+        <td style="white-space:nowrap;vertical-align:top">${i+1}</td>
+        <td style="vertical-align:top"><b>${esc(p.name)}</b><div style="color:var(--text-dim);font-size:13px">${typeLabel}</div></td>
+        <td style="vertical-align:top;border-left:3px solid var(--land)">${landCell}</td>
+        <td style="vertical-align:top;border-left:3px solid var(--building)">${bldCell}</td>
+        <td style="vertical-align:top;white-space:nowrap"><button class="icon-btn" onclick="openPropDetail(${p.property_id})">明細</button></td>
+      </tr>`;
+    });
 
-    html += `<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
-      <div class="card" style="flex:1;min-width:480px;overflow-x:auto">
-        <div class="card-head"><h3><span style="color:var(--land)">●</span> 土地權狀</h3></div>
-        <table><thead><tr><th>序號</th><th>權狀位置</th><th>權狀字號</th><th>地段</th><th>地號</th><th class="right">面積</th><th>地目</th><th>持分</th><th class="right">成本</th></tr></thead>
-        <tbody>${landRows}</tbody></table>
-      </div>
-      <div class="card" style="flex:1;min-width:440px;overflow-x:auto">
-        <div class="card-head"><h3><span style="color:var(--building)">●</span> 建物權狀</h3></div>
-        <table><thead><tr><th>序號</th><th>權狀位置</th><th>權狀字號</th><th>建號</th><th class="right">面積</th><th>地址</th><th>持分</th><th class="right">成本</th></tr></thead>
-        <tbody>${bldRows}</tbody></table>
-      </div>
-    </div>
-    <div class="page-desc" style="margin-top:10px">點任一列可進入該權狀詳細頁。</div>`;
+    html += `<div class="card" style="overflow-x:auto">
+      <div class="card-head"><h3>不動產物件一覽（左土地 · 右建物，同一行＝同一物件）</h3>
+        <button class="btn ghost" onclick="rebuildProperties()">↻ 重新整理物件</button></div>
+      <table style="font-size:14px"><thead><tr>
+        <th>序號</th><th>物件名稱</th><th style="color:var(--land)">● 土地（地段地號 · 地目 · 面積 · 持分）</th><th style="color:var(--building)">● 建物（建號 · 地址 · 面積 · 持分）</th><th></th>
+      </tr></thead><tbody>${rows}</tbody></table>
+      <div class="page-desc" style="margin-top:10px">點地號/建號進詳細頁；數量不對時按「↻ 重新整理物件」。</div>
+    </div>`;
   }
   $('#dashboard').innerHTML = html;
 }
