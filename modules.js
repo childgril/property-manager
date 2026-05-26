@@ -2,6 +2,43 @@
    擴充模組：不動產物件 / 買賣交易(含金流) / 銀行借貸(含繳款)
    ============================================================ */
 
+/* 依「建物坐落地號」重建所有不動產物件：
+   - 每個建物 + 它坐落的土地 = 一個物件
+   - 沒有任何建物坐落的土地，各自成為一個純土地物件 */
+function rebuildProperties(silent) {
+  if (!silent && !confirm('將依「建物坐落地號」重新整理不動產物件：\n\n• 每個建物＋它坐落的土地＝一個物件\n• 沒有建物的土地＝各自一個物件\n\n會重建物件清單（不影響土地、建物權狀本身）。確定嗎？')) return;
+  run("DELETE FROM properties");
+  run("DELETE FROM deed_assignments");
+  const usedLand = {};
+  const blds = query("SELECT building_id, building_number, door_address FROM buildings WHERE lifecycle_status='held' ORDER BY building_number");
+  blds.forEach(b => {
+    const name = b.door_address || ('建號 ' + b.building_number);
+    run("INSERT INTO properties (name,door_address,property_type,current_status,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+      [name, b.door_address||null, 'land_and_building', 'self_use', now(), now()]);
+    const pid = query("SELECT last_insert_rowid() AS id")[0].id;
+    run("INSERT INTO deed_assignments (property_id,deed_type,building_id,start_date,is_current,created_at) VALUES (?,?,?,?,1,?)",
+      [pid, 'building', b.building_id, now(), now()]);
+    const lands = query("SELECT land_id FROM building_lands WHERE building_id=?", [b.building_id]);
+    lands.forEach(l => {
+      run("INSERT INTO deed_assignments (property_id,deed_type,land_id,start_date,is_current,notes,created_at) VALUES (?,?,?,?,1,?,?)",
+        [pid, 'land', l.land_id, now(), 'auto_by_building', now()]);
+      usedLand[l.land_id] = true;
+    });
+  });
+  const lands = query("SELECT land_id, land_number, section_name FROM lands WHERE lifecycle_status='held' ORDER BY section_name, land_number");
+  lands.forEach(l => {
+    if (usedLand[l.land_id]) return;
+    const name = ((l.section_name||'')+' '+(l.land_number||'')).trim() || ('地號'+l.land_id);
+    run("INSERT INTO properties (name,property_type,current_status,created_at,updated_at) VALUES (?,?,?,?,?)",
+      [name, 'land', 'self_use', now(), now()]);
+    const pid = query("SELECT last_insert_rowid() AS id")[0].id;
+    run("INSERT INTO deed_assignments (property_id,deed_type,land_id,start_date,is_current,created_at) VALUES (?,?,?,?,1,?)",
+      [pid, 'land', l.land_id, now(), now()]);
+  });
+  autoSave();
+  if (!silent) { toast('已重新整理不動產物件'); showPage('dashboard'); }
+}
+
 /* ====================== 不動產物件 ====================== */
 function renderPropertyList() {
   const rows = query("SELECT * FROM properties ORDER BY property_id DESC");

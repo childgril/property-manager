@@ -231,7 +231,9 @@ function saveLand(id) {
     lid = query("SELECT last_insert_rowid() AS id")[0].id;
     toast('已新增土地權狀');
   }
-  autoLinkLandProperty(lid, f);
+  // 不在此自動建物件（避免每筆土地各生一個造成物件虛胖）；
+  // 物件由建物坐落帶入，或由總覽「重新整理物件」依坐落地號統一組成。
+  // autoLinkLandProperty(lid, f);
   autoSave(); closeModal(); renderLandList();
 }
 /* 土地存檔後，自動建立對應的不動產物件（純土地物件），讓買賣交易可選到。
