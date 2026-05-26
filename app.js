@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS common_areas (
   notes TEXT,
   created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS building_extra_areas (
+  extra_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  building_id INTEGER,
+  area_label TEXT,
+  area_sqm REAL,
+  created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS building_lands (
   bl_id INTEGER PRIMARY KEY AUTOINCREMENT,
   building_id INTEGER,

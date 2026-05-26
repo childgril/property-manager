@@ -13,6 +13,12 @@ function openModal(html) {
     });
     updateCostTotal();
   }
+  // 若是建物表單（有面積加總提示），綁定主建物面積變動更新加總
+  if (document.getElementById('areaSumHint')) {
+    $('#modal').addEventListener('input', e => {
+      if (e.target.name === 'main_area_sqm') updateAreaSum();
+    });
+  }
 }
 
 /* 即時把平方公尺換算成坪，顯示在指定的提示元素 */
@@ -301,12 +307,20 @@ function openBuildingForm(id) {
           <span style="color:var(--text-dim);font-size:13px">不填=全部</span>
         </div>
       </div>
-      <div class="field">
+      <div class="field"></div>
+      <div class="field full">
+        <label>其他面積項目（夾層、地下室等，可多筆）</label>
+        <div id="extraAreaList"></div>
+        <button type="button" class="btn ghost" style="margin-top:6px" onclick="addExtraAreaRow()">+ 新增面積項目</button>
+      </div>
+      <div class="field full">
         <label>權狀總登記㎡</label>
-        <div style="display:flex;align-items:center;gap:10px">
-          <input name="total_registered_area_sqm" type="number" value="${esc(r.total_registered_area_sqm)}" oninput="updatePing(this,'ping_bld_total')" style="flex:1">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input name="total_registered_area_sqm" type="number" value="${esc(r.total_registered_area_sqm)}" oninput="updatePing(this,'ping_bld_total')" style="flex:1;min-width:160px">
           <span id="ping_bld_total" style="color:var(--accent);font-weight:600;white-space:nowrap;min-width:80px">${r.total_registered_area_sqm?'≈ '+sqm2ping(r.total_registered_area_sqm)+' 坪':''}</span>
+          <button type="button" class="btn ghost" style="white-space:nowrap" onclick="fillTotalFromSum()">↙ 帶入加總</button>
         </div>
+        <div class="hint">主建物＋其他面積項目 自動加總：<span id="areaSumHint" style="color:var(--accent);font-weight:600">0</span> ㎡（可按「帶入加總」填入，或自行輸入權狀上的數字）</div>
       </div>
 
       <div class="section-label">附屬建物（陽台、雨遮等，可多筆）</div>
@@ -373,8 +387,11 @@ function openBuildingForm(id) {
   auxRows = id ? query("SELECT * FROM building_auxiliaries WHERE building_id=?", [id]).map(a => ({aux_type:a.aux_type, area_sqm:a.area_sqm, share_numerator:a.share_numerator, share_denominator:a.share_denominator})) : (window.__bldPresetAux || []);
   commonRows = id ? query("SELECT * FROM common_areas WHERE building_id=?", [id]).map(c => ({section_name:c.section_name, common_building_number:c.common_building_number, area_sqm:c.area_sqm, share_numerator:c.share_numerator, share_denominator:c.share_denominator})) : (window.__bldPresetCommon || []);
   window.__bldPresetAux = null; window.__bldPresetCommon = null;
+  extraRows = id ? query("SELECT * FROM building_extra_areas WHERE building_id=?", [id]).map(e => ({area_label:e.area_label, area_sqm:e.area_sqm})) : (window.__bldPresetExtra || []);
+  window.__bldPresetExtra = null;
   renderAuxList();
   renderCommonList();
+  renderExtraAreaList();
   // 載入土地權狀勾選清單
   renderLandPickList(id);
 }
@@ -439,7 +456,40 @@ function removeLandPick(landId) {
 }
 
 /* ===== 附屬建物 / 共同使用部分 的動態清單 ===== */
-let auxRows = [], commonRows = [];
+let auxRows = [], commonRows = [], extraRows = [];
+
+/* 其他面積項目（夾層等）動態清單 */
+function renderExtraAreaList() {
+  const box = document.getElementById('extraAreaList');
+  if (!box) return;
+  if (!extraRows.length) { box.innerHTML = '<div style="color:var(--text-dim);font-size:14px;padding:4px 0">尚無其他面積項目</div>'; updateAreaSum(); return; }
+  box.innerHTML = extraRows.map((a,i) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <input placeholder="名稱（如：夾層）" value="${esc(a.area_label)??''}" oninput="extraRows[${i}].area_label=this.value" style="width:160px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+      <input type="number" placeholder="面積㎡" value="${a.area_sqm??''}" oninput="extraRows[${i}].area_sqm=this.value;updateAreaSum()" style="width:110px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:9px;border-radius:7px;font-size:15px">
+      <span style="color:var(--text-dim);font-size:14px">㎡</span>
+      <button type="button" class="icon-btn del" onclick="removeExtraAreaRow(${i})">刪除</button>
+    </div>`).join('');
+  updateAreaSum();
+}
+function addExtraAreaRow() { extraRows.push({area_label:'', area_sqm:''}); renderExtraAreaList(); }
+function removeExtraAreaRow(i) { extraRows.splice(i,1); renderExtraAreaList(); }
+/* 計算 主建物＋其他項目 的加總，顯示在提示 */
+function updateAreaSum() {
+  const main = parseFloat((document.querySelector('#modal [name="main_area_sqm"]')||{}).value) || 0;
+  const extra = extraRows.reduce((s,a)=> s + (parseFloat(a.area_sqm)||0), 0);
+  const sum = main + extra;
+  const el = document.getElementById('areaSumHint');
+  if (el) el.textContent = sum ? sum.toFixed(2).replace(/\.?0+$/,'') : '0';
+}
+/* 按「帶入加總」把加總填進權狀總登記欄 */
+function fillTotalFromSum() {
+  const main = parseFloat((document.querySelector('#modal [name="main_area_sqm"]')||{}).value) || 0;
+  const extra = extraRows.reduce((s,a)=> s + (parseFloat(a.area_sqm)||0), 0);
+  const sum = main + extra;
+  const input = document.querySelector('#modal [name="total_registered_area_sqm"]');
+  if (input) { input.value = sum ? parseFloat(sum.toFixed(2)) : ''; updatePing(input, 'ping_bld_total'); }
+}
 
 function renderAuxList() {
   const box = document.getElementById('auxList');
@@ -512,6 +562,12 @@ function saveBuilding(id) {
     if (c.section_name || c.common_building_number || c.area_sqm) run("INSERT INTO common_areas (building_id,section_name,common_building_number,area_sqm,share_numerator,share_denominator,created_at) VALUES (?,?,?,?,?,?,?)",
       [bid, c.section_name||null, c.common_building_number||null, c.area_sqm||null, c.share_numerator||null, c.share_denominator||null, now()]);
   });
+  // 重寫其他面積項目子表（夾層等）
+  run("DELETE FROM building_extra_areas WHERE building_id=?", [bid]);
+  extraRows.forEach(e => {
+    if (e.area_label || e.area_sqm) run("INSERT INTO building_extra_areas (building_id,area_label,area_sqm,created_at) VALUES (?,?,?,?)",
+      [bid, e.area_label||null, e.area_sqm||null, now()]);
+  });
   // 重寫坐落土地關聯（從已選清單 pickedLands）
   run("DELETE FROM building_lands WHERE building_id=?", [bid]);
   pickedLands.forEach(l => {
@@ -560,6 +616,7 @@ function deleteBuilding(id) {
   run("DELETE FROM deed_events WHERE deed_type='building' AND deed_id=?", [id]);
   run("DELETE FROM building_auxiliaries WHERE building_id=?", [id]);
   run("DELETE FROM common_areas WHERE building_id=?", [id]);
+  run("DELETE FROM building_extra_areas WHERE building_id=?", [id]);
   autoSave(); toast('已刪除'); renderBuildingList();
 }
 /* 複製建物權狀：只帶基本資料，費用/日期不帶。附屬建物/共同使用部分一併複製 */
@@ -576,6 +633,7 @@ function duplicateBuilding(id) {
   // 複製附屬建物與共同使用部分（不含坐落土地關聯，避免誤連）
   window.__bldPresetAux = query("SELECT aux_type,area_sqm,share_numerator,share_denominator FROM building_auxiliaries WHERE building_id=?", [id]);
   window.__bldPresetCommon = query("SELECT section_name,common_building_number,area_sqm,share_numerator,share_denominator FROM common_areas WHERE building_id=?", [id]);
+  window.__bldPresetExtra = query("SELECT area_label,area_sqm FROM building_extra_areas WHERE building_id=?", [id]);
   openBuildingForm();
   toast('已複製，請填入新的建號與權狀字號');
 }
@@ -624,6 +682,12 @@ function openDeedDetail(type, id) {
     add('構造', esc(r.structure)||'—');
     add('建築完成', rocDate(r.completion_date));
     add('主建物', `<span class="mono">${fmt(r.main_area_sqm)} ㎡</span>`);
+    // 其他面積項目（夾層等）
+    const extraList = query("SELECT area_label, area_sqm FROM building_extra_areas WHERE building_id=?", [id]);
+    if (extraList.length) {
+      const extraStr = extraList.map(e => `${esc(e.area_label)||'其他'} ${fmt(e.area_sqm)}㎡`).join('<br>');
+      add('其他面積', extraStr);
+    }
     add('總登記面積', `<span class="mono">${fmt(r.total_registered_area_sqm)} ㎡（${sqm2ping(r.total_registered_area_sqm)} 坪）</span>`);
     add('取得成本', `<span class="mono">${fmt(r.acquisition_cost)}</span>`);
     { const fees = (r.fee_deed_tax||0)+(r.fee_stamp_duty||0)+(r.fee_lawyer||0)+(r.fee_broker||0)+(r.fee_registration||0)+(r.fee_other||0);
