@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS lands (
   land_category TEXT, zoning TEXT, land_grade TEXT,
   total_area_sqm REAL, share_numerator INTEGER, share_denominator INTEGER,
   announced_value_per_sqm REAL, announced_value_date TEXT,
-  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT,
+  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT, owner_name TEXT,
   deed_physical_location TEXT,
   acquired_at TEXT, acquisition_type TEXT, acquisition_cost REAL,
   fee_land_increment_tax REAL, fee_deed_tax REAL, fee_stamp_duty REAL, fee_lawyer REAL, fee_broker REAL, fee_registration REAL, fee_other REAL,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS buildings (
   main_area_sqm REAL, auxiliary_area_sqm REAL, common_area_sqm REAL,
   share_numerator INTEGER, share_denominator INTEGER, total_registered_area_sqm REAL,
   located_land_numbers TEXT,
-  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT,
+  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT, owner_name TEXT,
   deed_physical_location TEXT,
   acquired_at TEXT, acquisition_type TEXT, acquisition_cost REAL,
   fee_land_increment_tax REAL, fee_deed_tax REAL, fee_stamp_duty REAL, fee_lawyer REAL, fee_broker REAL, fee_registration REAL, fee_other REAL,
@@ -444,11 +444,50 @@ function renderDashboard() {
   if (landTotal === 0 && bldTotal === 0) {
     html += `<div class="note">👋 目前沒有任何資料。你可以點左下角「🌱 載入範例資料」看看系統怎麼運作，或直接到「土地權狀」「建物權狀」開始新增。所有資料只存在你的電腦，記得用「💾 儲存到檔案」匯出備份。</div>`;
   } else {
-    const recentL = query("SELECT land_id id, land_number num, lifecycle_status st FROM lands ORDER BY land_id DESC LIMIT 5");
-    const recentB = query("SELECT building_id id, building_number num, lifecycle_status st FROM buildings ORDER BY building_id DESC LIMIT 5");
-    html += `<div class="card"><div class="card-head"><h3>最近的權狀</h3></div><table><tbody>`;
-    recentL.forEach(r => html += `<tr class="clickable" onclick="openDeedDetail('land',${r.id})"><td><span class="badge land">土地</span></td><td class="mono">${esc(r.num)}</td><td><span class="badge ${r.st}">${enumLabel('land_status',r.st)}</span></td></tr>`);
-    recentB.forEach(r => html += `<tr class="clickable" onclick="openDeedDetail('building',${r.id})"><td><span class="badge building">建物</span></td><td class="mono">${esc(r.num)}</td><td><span class="badge ${r.st}">${enumLabel('building_status',r.st)}</span></td></tr>`);
+    // 整合土地與建物為一張「權狀清單」
+    const lands = query("SELECT * FROM lands ORDER BY section_name, land_number");
+    const blds = query("SELECT * FROM buildings ORDER BY building_number");
+    const rocYear = s => { const m=String(s||'').match(/^(\d{4})/); return m?(parseInt(m[1])-1911):'—'; };
+    const shareTxt = r => (r.share_numerator&&r.share_denominator)?`${r.share_numerator}/${r.share_denominator}`:'全部';
+
+    html += `<div class="card" style="overflow-x:auto"><div class="card-head"><h3>權狀清單</h3>
+      <button class="btn" onclick="showPage('lands')">+ 新增</button></div>
+      <table><thead><tr>
+        <th>類型</th><th>年度</th><th>地段</th><th>地號/建號</th><th class="right">面積</th><th>地目</th><th>地址(建物)</th><th>所有權人</th><th>持分</th><th class="right">購置成本</th><th>狀態</th><th></th>
+      </tr></thead><tbody>`;
+
+    lands.forEach(r => {
+      html += `<tr>
+        <td><span class="badge land">土地</span></td>
+        <td class="mono">${rocYear(r.acquired_at)}</td>
+        <td>${esc(r.section_name)||'—'}</td>
+        <td class="mono"><b>${esc(r.land_number)}</b></td>
+        <td class="mono right">${fmt(r.total_area_sqm)}</td>
+        <td>${enumLabel('land_category',r.land_category)}</td>
+        <td>—</td>
+        <td>${esc(r.owner_name)||'—'}</td>
+        <td>${shareTxt(r)}</td>
+        <td class="mono right">$${fmt(r.acquisition_cost||0)}</td>
+        <td><span class="badge ${r.lifecycle_status}">${enumLabel('land_status',r.lifecycle_status)}</span></td>
+        <td><div class="row-actions"><button class="icon-btn" onclick="openDeedDetail('land',${r.land_id})">查看</button><button class="icon-btn" onclick="openLandForm(${r.land_id})">編輯</button></div></td>
+      </tr>`;
+    });
+    blds.forEach(r => {
+      html += `<tr>
+        <td><span class="badge building">建物</span></td>
+        <td class="mono">${rocYear(r.acquired_at)}</td>
+        <td>${esc(r.section_name)||'—'}</td>
+        <td class="mono"><b>${esc(r.building_number)}</b></td>
+        <td class="mono right">${fmt(r.total_registered_area_sqm||r.main_area_sqm)}</td>
+        <td>—</td>
+        <td>${esc(r.door_address)||'—'}</td>
+        <td>${esc(r.owner_name)||'—'}</td>
+        <td>${shareTxt(r)}</td>
+        <td class="mono right">$${fmt(r.acquisition_cost||0)}</td>
+        <td><span class="badge ${r.lifecycle_status}">${enumLabel('building_status',r.lifecycle_status)}</span></td>
+        <td><div class="row-actions"><button class="icon-btn" onclick="openDeedDetail('building',${r.building_id})">查看</button><button class="icon-btn" onclick="openBuildingForm(${r.building_id})">編輯</button></div></td>
+      </tr>`;
+    });
     html += `</tbody></table></div>`;
   }
   $('#dashboard').innerHTML = html;

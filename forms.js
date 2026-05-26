@@ -198,6 +198,7 @@ function openLandForm(id) {
       <div class="section-label">他項權利與文件</div>
       <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
       ${fieldText('other_rights_notes','其他他項權利',r.other_rights_notes,{full:true,ph:'地上權、地役權等'})}
+      ${fieldText('owner_name','所有權人',r.owner_name,{ph:'登記名義人'})}
       ${fieldText('notes','備註',r.notes,{full:true})}
     </div></div>
     <div class="modal-foot">
@@ -212,7 +213,7 @@ function saveLand(id) {
   // 民國年日期欄位：從三格組成西元
   f.acquired_at = readRocDate('acquired_at');
   f.disposed_at = readRocDate('disposed_at');
-  const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','land_grade','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_land_increment_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
+  const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','land_grade','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','owner_name','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_land_increment_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
   let lid = id;
   if (id) {
@@ -361,6 +362,7 @@ function openBuildingForm(id) {
       <div class="section-label">他項權利與文件</div>
       <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
       ${fieldText('other_rights_notes','其他他項權利',r.other_rights_notes,{full:true})}
+      ${fieldText('owner_name','所有權人',r.owner_name,{ph:'登記名義人'})}
       ${fieldText('notes','備註',r.notes,{full:true})}
     </div></div>
     <div class="modal-foot"><span></span>
@@ -487,7 +489,7 @@ function saveBuilding(id) {
   // 附屬建物面積合計、共有部分面積合計（自動由清單加總）
   f.auxiliary_area_sqm = auxRows.reduce((s,a)=> s + (parseFloat(a.area_sqm)||0), 0) || null;
   f.common_area_sqm = commonRows.reduce((s,c)=> s + (parseFloat(c.area_sqm)||0), 0) || null;
-  const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','located_land_numbers','has_mortgage','other_rights_notes','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_deed_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
+  const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','located_land_numbers','has_mortgage','other_rights_notes','owner_name','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_deed_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
   let bid = id;
   if (id) {
