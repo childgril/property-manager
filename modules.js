@@ -6,25 +6,45 @@
    - 每個建物 + 它坐落的土地 = 一個物件
    - 沒有任何建物坐落的土地，各自成為一個純土地物件 */
 function rebuildProperties(silent) {
-  if (!silent && !confirm('將依「建物坐落地號」重新整理不動產物件：\n\n• 每個建物＋它坐落的土地＝一個物件\n• 沒有建物的土地＝各自一個物件\n\n會重建物件清單（不影響土地、建物權狀本身）。確定嗎？')) return;
+  if (!silent && !confirm('將依「建物坐落地號」重新整理不動產物件：\n\n• 坐落在相同土地的建物，會併成同一個物件（土地一筆、建物多筆）\n• 沒有建物的土地＝各自一個物件\n\n會重建物件清單（不影響土地、建物權狀本身）。確定嗎？')) return;
   run("DELETE FROM properties");
   run("DELETE FROM deed_assignments");
   const usedLand = {};
   const blds = query("SELECT building_id, building_number, door_address FROM buildings WHERE lifecycle_status='held' ORDER BY building_number");
+
+  // 依「坐落土地組合」分群：key = 排序後的 land_id 清單
+  const groups = {};  // key -> { landIds:[], buildingIds:[] }
   blds.forEach(b => {
-    const name = b.door_address || ('建號 ' + b.building_number);
+    const lids = query("SELECT land_id FROM building_lands WHERE building_id=? ORDER BY land_id", [b.building_id]).map(r => r.land_id);
+    const key = lids.length ? lids.join('-') : ('nobuildingland_' + b.building_id); // 沒坐落地的建物各自成群
+    if (!groups[key]) groups[key] = { landIds: lids, buildingIds: [] };
+    groups[key].buildingIds.push(b.building_id);
+  });
+
+  // 每群建一個物件
+  Object.keys(groups).forEach(key => {
+    const g = groups[key];
+    // 物件名稱：用第一棟建物的門牌，沒有就用建號
+    const firstB = query("SELECT building_number, door_address FROM buildings WHERE building_id=?", [g.buildingIds[0]])[0];
+    let name = firstB.door_address || ('建號 ' + firstB.building_number);
+    if (g.buildingIds.length > 1) name += ` 等${g.buildingIds.length}筆`;
     run("INSERT INTO properties (name,door_address,property_type,current_status,created_at,updated_at) VALUES (?,?,?,?,?,?)",
-      [name, b.door_address||null, 'land_and_building', 'self_use', now(), now()]);
+      [name, firstB.door_address||null, 'land_and_building', 'self_use', now(), now()]);
     const pid = query("SELECT last_insert_rowid() AS id")[0].id;
-    run("INSERT INTO deed_assignments (property_id,deed_type,building_id,start_date,is_current,created_at) VALUES (?,?,?,?,1,?)",
-      [pid, 'building', b.building_id, now(), now()]);
-    const lands = query("SELECT land_id FROM building_lands WHERE building_id=?", [b.building_id]);
-    lands.forEach(l => {
+    // 指派建物（多筆）
+    g.buildingIds.forEach(bid => {
+      run("INSERT INTO deed_assignments (property_id,deed_type,building_id,start_date,is_current,created_at) VALUES (?,?,?,?,1,?)",
+        [pid, 'building', bid, now(), now()]);
+    });
+    // 指派土地（共用的那些）
+    g.landIds.forEach(lid => {
       run("INSERT INTO deed_assignments (property_id,deed_type,land_id,start_date,is_current,notes,created_at) VALUES (?,?,?,?,1,?,?)",
-        [pid, 'land', l.land_id, now(), 'auto_by_building', now()]);
-      usedLand[l.land_id] = true;
+        [pid, 'land', lid, now(), 'auto_by_building', now()]);
+      usedLand[lid] = true;
     });
   });
+
+  // 沒被任何建物坐落的土地，各自成純土地物件
   const lands = query("SELECT land_id, land_number, section_name FROM lands WHERE lifecycle_status='held' ORDER BY section_name, land_number");
   lands.forEach(l => {
     if (usedLand[l.land_id]) return;
