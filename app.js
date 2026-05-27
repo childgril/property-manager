@@ -526,14 +526,14 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.26-o</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.27-a</span></div>
     <div class="stats">
-      <div class="stat"><div class="label">土地權狀</div><div class="value" style="color:var(--land)">${landTotal}</div><div class="page-desc" style="margin:4px 0 0">持有中 ${landHeld}</div></div>
-      <div class="stat"><div class="label">建物權狀</div><div class="value" style="color:var(--building)">${bldTotal}</div><div class="page-desc" style="margin:4px 0 0">持有中 ${bldHeld}</div></div>
-      <div class="stat"><div class="label">不動產物件</div><div class="value">${propTotal}</div></div>
-      <div class="stat"><div class="label">進行中交易</div><div class="value">${txnOpen}</div></div>
-      <div class="stat"><div class="label">活躍貸款</div><div class="value">${loanActive}</div></div>
-      <div class="stat"><div class="label">貸款餘額</div><div class="value" style="font-size:18px">${fmt(loanBalance)}</div></div>
+      <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
+      <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>
+      <div class="stat statcard" style="--c:#0891b2"><div class="label">不動產物件</div><div class="value" style="color:#0891b2">${propTotal}</div><div class="sub">土地＋建物組成</div></div>
+      <div class="stat statcard" style="--c:#7c3aed"><div class="label">購置成本總額</div><div class="value" style="color:#7c3aed;font-size:22px">$${fmt(landCost+bldCost)}</div><div class="sub">持有中權狀合計</div></div>
+      <div class="stat statcard" style="--c:#ea580c"><div class="label">進行中交易</div><div class="value" style="color:#ea580c">${txnOpen}</div><div class="sub">買賣流程追蹤</div></div>
+      <div class="stat statcard" style="--c:#dc2626"><div class="label">活躍貸款</div><div class="value" style="color:#dc2626">${loanActive}</div><div class="sub">餘額 $${fmt(loanBalance)}</div></div>
     </div>`;
 
   if (landTotal === 0 && bldTotal === 0) {
