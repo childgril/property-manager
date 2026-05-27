@@ -239,7 +239,85 @@ function westToRoc(s) {
   return { y: parseInt(m[1])-1911, m: parseInt(m[2]), d: parseInt(m[3]) };
 }
 function esc(s) { return (s==null?'':String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-function markDirty() { dirty = true; $('#dataStatus').textContent = '⚠ 有未儲存變更，記得「儲存到檔案」'; $('#dataStatus').style.color = 'var(--amber)'; }
+
+/* 匯出資料為 Excel 可開的 CSV（UTF-8 BOM，中文不亂碼） */
+function exportCSV(headers, rows, filename) {
+  const cell = v => {
+    let s = (v == null) ? '' : String(v);
+    if (/[",\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const lines = [headers.map(cell).join(',')];
+  rows.forEach(r => lines.push(r.map(cell).join(',')));
+  const csv = '\uFEFF' + lines.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const today = new Date().toISOString().slice(0,10);
+  a.href = url; a.download = `${filename}_${today}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+/* 匯出多個工作表為單一 .xls（Excel 可開，含多分頁、中文正常）。
+   sheets: [{ name:'土地權狀', headers:[...], rows:[[...],...] }, ...] */
+function exportMultiSheetXLS(sheets, filename) {
+  const escH = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let xml = '<?xml version="1.0"?>\n<?mso-application progid="Excel.Sheet"?>\n';
+  xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
+  sheets.forEach(sh => {
+    const safeName = (sh.name||'Sheet').replace(/[\\\/\?\*\[\]:]/g,' ').slice(0,31);
+    xml += `<Worksheet ss:Name="${escH(safeName)}"><Table>`;
+    xml += '<Row>' + sh.headers.map(h => `<Cell><Data ss:Type="String">${escH(h)}</Data></Cell>`).join('') + '</Row>';
+    sh.rows.forEach(r => {
+      xml += '<Row>' + r.map(v => {
+        const isNum = v !== '' && v != null && !isNaN(v) && typeof v !== 'object';
+        return `<Cell><Data ss:Type="${isNum?'Number':'String'}">${escH(v)}</Data></Cell>`;
+      }).join('') + '</Row>';
+    });
+    xml += '</Table></Worksheet>';
+  });
+  xml += '</Workbook>';
+  const blob = new Blob(['\uFEFF'+xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const today = new Date().toISOString().slice(0,10);
+  a.href = url; a.download = `${filename}_${today}.xls`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+/* 一鍵匯出全部（土地＋建物，未來可加交易/借款）為一個多分頁 .xls */
+function exportAll() {
+  const lands = query("SELECT * FROM lands ORDER BY deed_physical_location, section_name, land_number");
+  const blds = query("SELECT * FROM buildings ORDER BY deed_physical_location, building_number");
+  if (!lands.length && !blds.length) { toast('沒有資料可匯出', true); return; }
+  const share = r => (r.share_numerator&&r.share_denominator)?`${r.share_numerator}/${r.share_denominator}`:'全部';
+  const sheets = [];
+  sheets.push({
+    name:'土地權狀',
+    headers:['權狀正本位置','權狀字號','地段','地號','地目','等則','面積㎡','坪數','持分','所有權人','登記日期','取得方式','取得成本','土地增值稅','贈與稅','印花稅','代書費','仲介費','登記規費','其他費用','狀態','處分日','處分方式','備註'],
+    rows: lands.map(r => [
+      r.deed_physical_location, r.title_deed_number, r.section_name, r.land_number, r.land_category, r.land_grade,
+      r.total_area_sqm, r.total_area_sqm?(r.total_area_sqm*0.3025).toFixed(2):'', share(r), r.owner_name,
+      rocDate(r.acquired_at), enumLabel('land_acq',r.acquisition_type), r.acquisition_cost,
+      r.fee_land_increment_tax, r.fee_gift_tax, r.fee_stamp_duty, r.fee_lawyer, r.fee_broker, r.fee_registration, r.fee_other,
+      enumLabel('land_status',r.lifecycle_status), rocDate(r.disposed_at), enumLabel('land_disposal',r.disposal_type), r.notes
+    ])
+  });
+  sheets.push({
+    name:'建物權狀',
+    headers:['權狀正本位置','權狀字號','建號','門牌地址','建物型態','主要構造','登記用途','主建物㎡','附屬建物㎡','共有部分㎡','權狀總登記㎡','坪數','持分','所有權人','登記日期','取得方式','取得成本','契稅','贈與稅','印花稅','代書費','仲介費','登記規費','其他費用','狀態','處分日','處分方式','備註'],
+    rows: blds.map(r => [
+      r.deed_physical_location, r.title_deed_number, r.building_number, r.door_address,
+      enumLabel('building_type',r.building_type), r.structure, r.usage_registered,
+      r.main_area_sqm, r.auxiliary_area_sqm, r.common_area_sqm, r.total_registered_area_sqm,
+      r.total_registered_area_sqm?(r.total_registered_area_sqm*0.3025).toFixed(2):'', share(r), r.owner_name,
+      rocDate(r.acquired_at), enumLabel('building_acq',r.acquisition_type), r.acquisition_cost,
+      r.fee_deed_tax, r.fee_gift_tax, r.fee_stamp_duty, r.fee_lawyer, r.fee_broker, r.fee_registration, r.fee_other,
+      enumLabel('building_status',r.lifecycle_status), rocDate(r.disposed_at), enumLabel('building_disposal',r.disposal_type), r.notes
+    ])
+  });
+  exportMultiSheetXLS(sheets, '不動產總表');
+}
 function markClean() { dirty = false; $('#dataStatus').textContent = '已儲存 / 無變更'; $('#dataStatus').style.color = 'var(--text-dim)'; }
 
 function toast(msg, isErr) {
@@ -425,6 +503,16 @@ function loadFromFile(e) {
 /* ============================================================
    總覽頁
    ============================================================ */
+let dashSort = '', dashSortDir = 'ASC';
+function setDashSort(c) {
+  if (dashSort === c) { dashSortDir = dashSortDir === 'ASC' ? 'DESC' : 'ASC'; }
+  else { dashSort = c; dashSortDir = 'ASC'; }
+  renderDashboard();
+}
+function dashTh(label, key, cls, extra) {
+  const arrow = dashSort===key ? (dashSortDir==='ASC'?' ▲':' ▼') : '';
+  return `<th class="${cls||''}" style="cursor:pointer;user-select:none;position:sticky;top:38px;z-index:2;background:var(--surface);${extra||''}" onclick="setDashSort('${key}')">${label}${arrow}</th>`;
+}
 function renderDashboard() {
   const landTotal = query("SELECT COUNT(*) c FROM lands")[0].c;
   const landHeld = query("SELECT COUNT(*) c FROM lands WHERE lifecycle_status='held'")[0].c;
@@ -438,7 +526,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.26-l</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.26-o</span></div>
     <div class="stats">
       <div class="stat"><div class="label">土地權狀</div><div class="value" style="color:var(--land)">${landTotal}</div><div class="page-desc" style="margin:4px 0 0">持有中 ${landHeld}</div></div>
       <div class="stat"><div class="label">建物權狀</div><div class="value" style="color:var(--building)">${bldTotal}</div><div class="page-desc" style="margin:4px 0 0">持有中 ${bldHeld}</div></div>
@@ -457,11 +545,33 @@ function renderDashboard() {
     // 每個物件一列；同物件多筆地/建在格內分行
     const cell = (arr, render) => arr.length ? arr.map(render).join('<hr style="border:none;border-top:1px dashed var(--border);margin:4px 0">') : '<span style="color:var(--text-dim)">—</span>';
 
+    let items = props.map(p => ({
+      p,
+      las: query("SELECT * FROM lands l WHERE l.land_id IN (SELECT land_id FROM deed_assignments WHERE property_id=? AND deed_type='land' AND is_current=1) ORDER BY deed_physical_location,section_name,land_number", [p.property_id]),
+      bls: query("SELECT * FROM buildings b WHERE b.building_id IN (SELECT building_id FROM deed_assignments WHERE property_id=? AND deed_type='building' AND is_current=1) ORDER BY deed_physical_location,building_number", [p.property_id])
+    }));
+    if (dashSort) {
+      const keyOf = it => {
+        const L = it.las[0] || {}, B = it.bls[0] || {};
+        const map = {
+          l_loc:L.deed_physical_location, l_deed:L.title_deed_number, l_sec:L.section_name, l_num:L.land_number,
+          l_area:L.total_area_sqm, l_cat:L.land_category, l_share:(L.share_numerator&&L.share_denominator)?L.share_numerator/L.share_denominator:9, l_cost:L.acquisition_cost,
+          b_loc:B.deed_physical_location, b_deed:B.title_deed_number, b_num:B.building_number,
+          b_area:B.total_registered_area_sqm||B.main_area_sqm, b_addr:B.door_address, b_share:(B.share_numerator&&B.share_denominator)?B.share_numerator/B.share_denominator:9, b_cost:B.acquisition_cost
+        };
+        return map[dashSort];
+      };
+      const numeric = ['l_area','l_cost','l_share','b_area','b_cost','b_share'].includes(dashSort);
+      items.sort((a,b) => {
+        let x = keyOf(a), y = keyOf(b);
+        if (numeric) { x = parseFloat(x)||0; y = parseFloat(y)||0; return dashSortDir==='ASC'?x-y:y-x; }
+        x = (x==null?'':String(x)); y = (y==null?'':String(y));
+        return dashSortDir==='ASC' ? x.localeCompare(y,'zh-Hant') : y.localeCompare(x,'zh-Hant');
+      });
+    }
+
     let rows = '';
-    props.forEach((p) => {
-      const las = query("SELECT * FROM lands l WHERE l.land_id IN (SELECT land_id FROM deed_assignments WHERE property_id=? AND deed_type='land' AND is_current=1) ORDER BY deed_physical_location,section_name,land_number", [p.property_id]);
-      const bls = query("SELECT * FROM buildings b WHERE b.building_id IN (SELECT building_id FROM deed_assignments WHERE property_id=? AND deed_type='building' AND is_current=1) ORDER BY deed_physical_location,building_number", [p.property_id]);
-      // 土地各欄（每欄格內可多行）
+    items.forEach(({p, las, bls}) => {
       const L = (f) => cell(las, f);
       const B = (f) => cell(bls, f);
       const onL = l => `onclick="openDeedDetail('land',${l.land_id})"`;
@@ -485,23 +595,28 @@ function renderDashboard() {
       </tr>`;
     });
 
-    html += `<div class="card" style="overflow-x:auto">
+    html += `<div class="card">
       <div class="card-head"><h3>不動產物件一覽（一列＝一物件，左半土地 · 右半建物）</h3>
-        <button class="btn ghost" onclick="rebuildProperties()">↻ 重新整理物件</button></div>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <button class="btn ghost" onclick="exportAll()">⬇ 匯出全部 Excel</button>
+          <button class="btn ghost" onclick="rebuildProperties()">↻ 重新整理物件</button>
+        </div></div>
+      <div style="max-height:70vh;overflow:auto">
       <table style="font-size:13px">
         <thead>
           <tr>
-            <th colspan="8" style="text-align:center;color:var(--land);background:rgba(0,0,0,0.02)">● 土地權狀</th>
-            <th colspan="7" style="text-align:center;color:var(--building);background:rgba(0,0,0,0.02);border-left:3px solid var(--building)">● 建物權狀</th>
+            <th colspan="8" style="text-align:center;color:var(--land);background:var(--surface);position:sticky;top:0;z-index:3">● 土地權狀</th>
+            <th colspan="7" style="text-align:center;color:var(--building);background:var(--surface);border-left:3px solid var(--building);position:sticky;top:0;z-index:3">● 建物權狀</th>
           </tr>
           <tr>
-            <th>權狀位置</th><th>權狀字號</th><th>地段</th><th>地號</th><th class="right">面積</th><th>地目</th><th>持分</th><th class="right">成本</th>
-            <th style="border-left:3px solid var(--building)">權狀位置</th><th>權狀字號</th><th>建號</th><th class="right">面積</th><th>地址</th><th>持分</th><th class="right">成本</th>
+            ${dashTh('權狀位置','l_loc')}${dashTh('權狀字號','l_deed')}${dashTh('地段','l_sec')}${dashTh('地號','l_num')}${dashTh('面積','l_area','right')}${dashTh('地目','l_cat')}${dashTh('持分','l_share')}${dashTh('成本','l_cost','right')}
+            ${dashTh('權狀位置','b_loc','','border-left:3px solid var(--building)')}${dashTh('權狀字號','b_deed')}${dashTh('建號','b_num')}${dashTh('面積','b_area','right')}${dashTh('地址','b_addr')}${dashTh('持分','b_share')}${dashTh('成本','b_cost','right')}
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
-      <div class="page-desc" style="margin-top:10px">一列代表一個物件：左半邊是土地、右半邊是對應的建物。點該列可進詳細頁；數量不對時按「↻ 重新整理物件」。</div>
+      </div>
+      <div class="page-desc" style="margin-top:10px">一列代表一個物件：左半邊是土地、右半邊是對應的建物。點欄位標題可排序、點該列進詳細頁；數量不對時按「↻ 重新整理物件」。</div>
     </div>`;
   }
   $('#dashboard').innerHTML = html;
@@ -535,7 +650,8 @@ function renderLandList() {
       <button class="chip ${landFilter==='held'?'on':''}" onclick="setLandFilter('held')">持有中</button>
       <button class="chip ${landFilter==='disposed'?'on':''}" onclick="setLandFilter('disposed')">已處分</button>
       <input class="search" placeholder="搜尋地號 / 地段 / 權狀字號" value="${esc(landSearch)}" oninput="onLandSearch(this.value)">
-      <button class="btn" style="margin-left:auto" onclick="openLandForm()">+ 新增土地權狀</button>
+      <button class="btn ghost" style="margin-left:auto" onclick="exportLands()">⬇ 匯出 Excel</button>
+      <button class="btn" onclick="openLandForm()">+ 新增土地權狀</button>
     </div>`;
 
   if (rows.length === 0) {
@@ -575,6 +691,20 @@ function setLandSort(c) {
   else { landSort = c; landSortDir = 'ASC'; }
   renderLandList();
 }
+function exportLands() {
+  const rows = query("SELECT * FROM lands ORDER BY deed_physical_location, section_name, land_number");
+  if (!rows.length) { toast('沒有土地資料可匯出', true); return; }
+  const headers = ['權狀正本位置','權狀字號','地段','地號','地目','等則','面積㎡','坪數','持分','所有權人','登記日期','取得方式','取得成本','土地增值稅','贈與稅','印花稅','代書費','仲介費','登記規費','其他費用','狀態','處分日','處分方式','備註'];
+  const share = r => (r.share_numerator&&r.share_denominator)?`${r.share_numerator}/${r.share_denominator}`:'全部';
+  const data = rows.map(r => [
+    r.deed_physical_location, r.title_deed_number, r.section_name, r.land_number,
+    r.land_category, r.land_grade, r.total_area_sqm, r.total_area_sqm?(r.total_area_sqm*0.3025).toFixed(2):'',
+    share(r), r.owner_name, rocDate(r.acquired_at), enumLabel('land_acq',r.acquisition_type),
+    r.acquisition_cost, r.fee_land_increment_tax, r.fee_gift_tax, r.fee_stamp_duty, r.fee_lawyer, r.fee_broker, r.fee_registration, r.fee_other,
+    enumLabel('land_status',r.lifecycle_status), rocDate(r.disposed_at), enumLabel('land_disposal',r.disposal_type), r.notes
+  ]);
+  exportCSV(headers, data, '土地權狀');
+}
 
 /* ============================================================
    建物權狀：列表
@@ -602,7 +732,8 @@ function renderBuildingList() {
       <button class="chip ${bldFilter==='held'?'on':''}" onclick="setBldFilter('held')">持有中</button>
       <button class="chip ${bldFilter==='disposed'?'on':''}" onclick="setBldFilter('disposed')">已處分</button>
       <input class="search" placeholder="搜尋建號 / 門牌 / 權狀字號" value="${esc(bldSearch)}" oninput="onBldSearch(this.value)">
-      <button class="btn" style="margin-left:auto" onclick="openBuildingForm()">+ 新增建物權狀</button>
+      <button class="btn ghost" style="margin-left:auto" onclick="exportBuildings()">⬇ 匯出 Excel</button>
+      <button class="btn" onclick="openBuildingForm()">+ 新增建物權狀</button>
     </div>`;
 
   if (rows.length === 0) {
@@ -641,6 +772,22 @@ function setBldSort(c) {
   if (bldSort === c) { bldSortDir = bldSortDir === 'ASC' ? 'DESC' : 'ASC'; }
   else { bldSort = c; bldSortDir = 'ASC'; }
   renderBuildingList();
+}
+function exportBuildings() {
+  const rows = query("SELECT * FROM buildings ORDER BY deed_physical_location, building_number");
+  if (!rows.length) { toast('沒有建物資料可匯出', true); return; }
+  const headers = ['權狀正本位置','權狀字號','建號','門牌地址','建物型態','主要構造','登記用途','主建物㎡','附屬建物㎡','共有部分㎡','權狀總登記㎡','坪數','持分','所有權人','登記日期','取得方式','取得成本','契稅','贈與稅','印花稅','代書費','仲介費','登記規費','其他費用','狀態','處分日','處分方式','備註'];
+  const share = r => (r.share_numerator&&r.share_denominator)?`${r.share_numerator}/${r.share_denominator}`:'全部';
+  const data = rows.map(r => [
+    r.deed_physical_location, r.title_deed_number, r.building_number, r.door_address,
+    enumLabel('building_type',r.building_type), r.structure, r.usage_registered,
+    r.main_area_sqm, r.auxiliary_area_sqm, r.common_area_sqm, r.total_registered_area_sqm,
+    r.total_registered_area_sqm?(r.total_registered_area_sqm*0.3025).toFixed(2):'',
+    share(r), r.owner_name, rocDate(r.acquired_at), enumLabel('building_acq',r.acquisition_type),
+    r.acquisition_cost, r.fee_deed_tax, r.fee_gift_tax, r.fee_stamp_duty, r.fee_lawyer, r.fee_broker, r.fee_registration, r.fee_other,
+    enumLabel('building_status',r.lifecycle_status), rocDate(r.disposed_at), enumLabel('building_disposal',r.disposal_type), r.notes
+  ]);
+  exportCSV(headers, data, '建物權狀');
 }
 
 window.addEventListener('DOMContentLoaded', boot);
