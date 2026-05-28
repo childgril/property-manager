@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS lands (
   land_category TEXT, zoning TEXT, land_grade TEXT,
   total_area_sqm REAL, share_numerator INTEGER, share_denominator INTEGER,
   announced_value_per_sqm REAL, announced_value_date TEXT,
-  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT, owner_name TEXT,
+  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT, owner_name TEXT, sort_order REAL,
   deed_physical_location TEXT,
   acquired_at TEXT, acquisition_type TEXT, acquisition_cost REAL,
   fee_land_increment_tax REAL, fee_deed_tax REAL, fee_gift_tax REAL, fee_stamp_duty REAL, fee_lawyer REAL, fee_broker REAL, fee_registration REAL, fee_other REAL,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS buildings (
   main_area_sqm REAL, auxiliary_area_sqm REAL, common_area_sqm REAL,
   share_numerator INTEGER, share_denominator INTEGER, total_registered_area_sqm REAL,
   located_land_numbers TEXT,
-  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT, owner_name TEXT,
+  has_mortgage INTEGER DEFAULT 0, other_rights_notes TEXT, owner_name TEXT, sort_order REAL,
   deed_physical_location TEXT,
   acquired_at TEXT, acquisition_type TEXT, acquisition_cost REAL,
   fee_land_increment_tax REAL, fee_deed_tax REAL, fee_gift_tax REAL, fee_stamp_duty REAL, fee_lawyer REAL, fee_broker REAL, fee_registration REAL, fee_other REAL,
@@ -526,7 +526,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.27-a</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.28-a</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>
@@ -625,7 +625,7 @@ function renderDashboard() {
 /* ============================================================
    土地權狀：列表
    ============================================================ */
-let landFilter = 'all', landSearch = '', landSort = 'deed_physical_location', landSortDir = 'ASC';
+let landFilter = 'all', landSearch = '', landSort = 'sort_order', landSortDir = 'ASC';
 function renderLandList() {
   let sql = "SELECT * FROM lands";
   const where = [];
@@ -634,9 +634,9 @@ function renderLandList() {
   if (landSearch) where.push(`(land_number LIKE '%${landSearch}%' OR section_name LIKE '%${landSearch}%' OR title_deed_number LIKE '%${landSearch}%')`);
   if (where.length) sql += " WHERE " + where.join(" AND ");
   // 排序：文字欄位用 COLLATE 讓地號自然排序
-  const sortMap = { deed_physical_location:'deed_physical_location', title_deed_number:'title_deed_number', land_number:'land_number', section_name:'section_name', land_category:'land_category', total_area_sqm:'total_area_sqm', acquisition_cost:'acquisition_cost', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
-  const col = sortMap[landSort] || 'deed_physical_location';
-  sql += ` ORDER BY ${col} ${landSortDir==='ASC'?'ASC':'DESC'}`;
+  const sortMap = { sort_order:'COALESCE(sort_order,999999)', deed_physical_location:'deed_physical_location', title_deed_number:'title_deed_number', land_number:'land_number', section_name:'section_name', land_category:'land_category', total_area_sqm:'total_area_sqm', acquisition_cost:'acquisition_cost', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
+  const col = sortMap[landSort] || 'COALESCE(sort_order,999999)';
+  sql += ` ORDER BY ${col} ${landSortDir==='ASC'?'ASC':'DESC'}, land_id ASC`;
   const rows = query(sql);
 
   // 產生可點擊排序的表頭
@@ -709,7 +709,7 @@ function exportLands() {
 /* ============================================================
    建物權狀：列表
    ============================================================ */
-let bldFilter = 'all', bldSearch = '', bldSort = 'deed_physical_location', bldSortDir = 'ASC';
+let bldFilter = 'all', bldSearch = '', bldSort = 'sort_order', bldSortDir = 'ASC';
 function renderBuildingList() {
   let sql = "SELECT * FROM buildings";
   const where = [];
@@ -717,8 +717,8 @@ function renderBuildingList() {
   if (bldFilter === 'disposed') where.push("lifecycle_status IN ('sold','demolished')");
   if (bldSearch) where.push(`(building_number LIKE '%${bldSearch}%' OR door_address LIKE '%${bldSearch}%' OR title_deed_number LIKE '%${bldSearch}%')`);
   if (where.length) sql += " WHERE " + where.join(" AND ");
-  const sortMap = { deed_physical_location:'deed_physical_location', title_deed_number:'title_deed_number', door_address:'door_address', building_number:'building_number', main_area_sqm:'main_area_sqm', auxiliary_area_sqm:'auxiliary_area_sqm', total_registered_area_sqm:'total_registered_area_sqm', acquisition_cost:'acquisition_cost', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
-  const col = sortMap[bldSort] || 'deed_physical_location';
+  const sortMap = { sort_order:'COALESCE(sort_order,999999)', deed_physical_location:'deed_physical_location', title_deed_number:'title_deed_number', door_address:'door_address', building_number:'building_number', main_area_sqm:'main_area_sqm', auxiliary_area_sqm:'auxiliary_area_sqm', total_registered_area_sqm:'total_registered_area_sqm', acquisition_cost:'acquisition_cost', acquired_at:'acquired_at', lifecycle_status:'lifecycle_status' };
+  const col = sortMap[bldSort] || 'COALESCE(sort_order,999999)';
   sql += ` ORDER BY ${col} ${bldSortDir==='ASC'?'ASC':'DESC'}`;
   const rows = query(sql);
 

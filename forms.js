@@ -134,15 +134,16 @@ function openLandForm(id) {
     <div class="modal-head"><h3>${id?'編輯':'新增'}土地權狀</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="section-label">地籍標示</div>
+      ${fieldText('sort_order','土序（排序用，可填數字）',r.sort_order,{type:'number',ph:'例：1、2、3…'})}
+      ${fieldText('title_deed_number','權狀字號',r.title_deed_number)}
+      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
       ${fieldText('county','縣市',r.county,{ph:'台北市'})}
       ${fieldText('district','鄉鎮市區',r.district,{ph:'大安區'})}
       ${fieldText('section_name','段/小段',r.section_name,{ph:'大安段三小段'})}
       ${fieldText('land_number','地號',r.land_number,{req:true,ph:'0512-0000'})}
-      ${fieldText('title_deed_number','權狀字號',r.title_deed_number)}
-      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
       ${fieldSelect('land_category','地目（權狀上的字）','land_category',r.land_category)}
-      ${fieldText('zoning','使用分區（都市計畫）',r.zoning,{ph:'第三種住宅區（無則免填）'})}
       ${fieldText('land_grade','等則（農地地價等級，無則免填）',r.land_grade,{ph:'例：19'})}
+      ${fieldText('zoning','使用分區（都市計畫）',r.zoning,{ph:'第三種住宅區（無則免填）'})}
       <div class="field"></div>
 
       <div class="section-label">面積與持分</div>
@@ -220,7 +221,7 @@ function saveLand(id) {
   // 民國年日期欄位：從三格組成西元
   f.acquired_at = readRocDate('acquired_at');
   f.disposed_at = readRocDate('disposed_at');
-  const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','land_grade','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','owner_name','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_land_increment_tax','fee_gift_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
+  const cols = ['deed_code','county','district','section_name','land_number','title_deed_number','land_category','zoning','land_grade','total_area_sqm','share_numerator','share_denominator','announced_value_per_sqm','announced_value_date','has_mortgage','other_rights_notes','owner_name','sort_order','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_land_increment_tax','fee_gift_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
   let lid = id;
   if (id) {
@@ -279,19 +280,20 @@ function openBuildingForm(id) {
     <div class="modal-head"><h3>${id?'編輯':'新增'}建物權狀</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="section-label">建物標示</div>
+      ${fieldText('sort_order','建序（排序用，可填數字）',r.sort_order,{type:'number',ph:'例：1、2、3…'})}
+      ${fieldText('title_deed_number','權狀字號',r.title_deed_number)}
+      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
       ${fieldText('county','縣市',r.county)}
       ${fieldText('district','鄉鎮市區',r.district)}
       ${fieldText('section_name','段/小段',r.section_name)}
       ${fieldText('building_number','建號',r.building_number,{req:true,ph:'02841-000'})}
       ${fieldText('door_address','門牌',r.door_address,{full:true})}
-      ${fieldText('title_deed_number','權狀字號',r.title_deed_number)}
-      ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
-      ${fieldSelectOrText('building_type','建物型態',['公寓','電梯大樓','透天厝','套房','店面','辦公','廠房','華廈','別墅'],r.building_type?enumLabel('building_type',r.building_type):'')}
       ${fieldSelectOrText('structure','主要構造',['鋼筋混凝土造','加強磚造','鋼骨鋼筋混凝土造','鋼骨造','磚造','木造','土造','石造'],r.structure)}
+      ${fieldSelectOrText('usage_registered','登記用途',['住家用','商業用','辦公室','店鋪','住商用','工業用','廠房','倉庫','停車空間'],r.usage_registered)}
+      ${fieldSelectOrText('building_type','建物型態',['公寓','電梯大樓','透天厝','套房','店面','辦公','廠房','華廈','別墅'],r.building_type?enumLabel('building_type',r.building_type):'')}
+      ${fieldRocDate('completion_date','建築完成日',r.completion_date,{hint:'影響屋齡'})}
       ${fieldText('total_floors','總樓層',r.total_floors,{type:'number'})}
       ${fieldText('floor_located','所在層次',r.floor_located,{ph:'五層'})}
-      ${fieldRocDate('completion_date','建築完成日',r.completion_date,{hint:'影響屋齡'})}
-      ${fieldSelectOrText('usage_registered','登記用途',['住家用','商業用','辦公室','店鋪','住商用','工業用','廠房','倉庫','停車空間'],r.usage_registered)}
       <div class="field full">
         <label>坐落地號（從下拉選單加入此建物坐落的土地，可多筆）</label>
         <select id="landPickDropdown" onchange="addLandPick(this.value)" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:7px;font-size:16px;width:100%"></select>
@@ -543,7 +545,7 @@ function saveBuilding(id) {
   // 附屬建物面積合計、共有部分面積合計（自動由清單加總）
   f.auxiliary_area_sqm = auxRows.reduce((s,a)=> s + (parseFloat(a.area_sqm)||0), 0) || null;
   f.common_area_sqm = commonRows.reduce((s,c)=> s + (parseFloat(c.area_sqm)||0), 0) || null;
-  const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','located_land_numbers','has_mortgage','other_rights_notes','owner_name','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_deed_tax','fee_gift_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
+  const cols = ['deed_code','county','district','section_name','building_number','door_address','title_deed_number','building_type','structure','total_floors','floor_located','completion_date','usage_registered','main_area_sqm','auxiliary_area_sqm','common_area_sqm','share_numerator','share_denominator','total_registered_area_sqm','located_land_numbers','has_mortgage','other_rights_notes','owner_name','sort_order','deed_physical_location','acquired_at','acquisition_type','acquisition_cost','fee_deed_tax','fee_gift_tax','fee_stamp_duty','fee_lawyer','fee_broker','fee_registration','fee_other','disposed_at','disposal_type','lifecycle_status','notes'];
   const vals = cols.map(c => f[c] === '' || f[c] === undefined ? null : f[c]);
   let bid = id;
   if (id) {
