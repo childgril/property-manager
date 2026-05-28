@@ -137,6 +137,7 @@ function openLandForm(id) {
       ${fieldText('sort_order','土序（排序用，可填數字）',r.sort_order,{type:'number',ph:'例：1、2、3…'})}
       ${fieldText('title_deed_number','權狀字號',r.title_deed_number)}
       ${fieldText('deed_physical_location','權狀正本位置',r.deed_physical_location,{ph:'保險箱A-3'})}
+      <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
       ${fieldText('county','縣市',r.county,{ph:'台北市'})}
       ${fieldText('district','鄉鎮市區',r.district,{ph:'大安區'})}
       ${fieldText('section_name','段/小段',r.section_name,{ph:'大安段三小段'})}
@@ -144,7 +145,9 @@ function openLandForm(id) {
       ${fieldSelect('land_category','地目（權狀上的字）','land_category',r.land_category)}
       ${fieldText('land_grade','等則（農地地價等級，無則免填）',r.land_grade,{ph:'例：19'})}
       ${fieldText('zoning','使用分區（都市計畫）',r.zoning,{ph:'第三種住宅區（無則免填）'})}
-      <div class="field"></div>
+      ${fieldText('owner_name','所有權人',r.owner_name,{ph:'登記名義人'})}
+      ${fieldText('other_rights_notes','其他他項權利',r.other_rights_notes,{full:true,ph:'地上權、地役權等'})}
+      ${fieldText('notes','備註',r.notes,{full:true})}
 
       <div class="section-label">面積與持分</div>
       <div class="field">
@@ -203,11 +206,6 @@ function openLandForm(id) {
         </div>
       </div>
 
-      <div class="section-label">他項權利與文件</div>
-      <div class="field"><label>是否設定抵押</label><select name="has_mortgage"><option value="0" ${!r.has_mortgage?'selected':''}>否</option><option value="1" ${r.has_mortgage?'selected':''}>是</option></select></div>
-      ${fieldText('other_rights_notes','其他他項權利',r.other_rights_notes,{full:true,ph:'地上權、地役權等'})}
-      ${fieldText('owner_name','所有權人',r.owner_name,{ph:'登記名義人'})}
-      ${fieldText('notes','備註',r.notes,{full:true})}
     </div></div>
     <div class="modal-foot">
       <span></span>
