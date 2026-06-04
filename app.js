@@ -80,6 +80,26 @@ CREATE TABLE IF NOT EXISTS building_lands (
   land_id INTEGER,
   created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS actual_price_records (
+  apr_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  district TEXT,
+  address TEXT,
+  building_type TEXT,
+  transaction_date TEXT,
+  total_price REAL,
+  unit_price_per_sqm REAL,
+  unit_price_per_ping REAL,
+  land_area_sqm REAL,
+  building_area_sqm REAL,
+  floor_info TEXT,
+  age REAL,
+  rooms TEXT,
+  parking TEXT,
+  zoning TEXT,
+  notes TEXT,
+  source_file TEXT,
+  created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS property_valuations (
   valuation_id INTEGER PRIMARY KEY AUTOINCREMENT,
   property_id INTEGER,
@@ -88,7 +108,16 @@ CREATE TABLE IF NOT EXISTS property_valuations (
   price_per_ping REAL,
   source TEXT,
   source_url TEXT,
+  ref_address TEXT,
+  ref_building_type TEXT,
+  ref_total_ping REAL,
+  ref_land_ping REAL,
+  ref_floor TEXT,
+  ref_age REAL,
+  ref_rooms TEXT,
+  ref_parking TEXT,
   notes TEXT,
+  photo BLOB,
   created_at TEXT
 );
 CREATE TABLE IF NOT EXISTS deed_events (
@@ -423,6 +452,8 @@ function run(sql, params=[]) {
    做法：直接解析 SCHEMA 裡每張表的欄位定義，跟實際資料庫比對，缺的自動補。
    不需手動維護清單，永遠不會漏。 */
 function migrate() {
+  // 先重跑 SCHEMA（用 IF NOT EXISTS 是安全的）確保新加的表會被建立
+  try { db.run(SCHEMA); } catch(e) {}
   // 從 SCHEMA 字串解析出每張表應有的欄位與型別
   const tableDefs = {};
   const re = /CREATE TABLE IF NOT EXISTS (\w+)\s*\(([\s\S]*?)\);/g;
@@ -595,7 +626,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.28-d</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.28-f</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>
@@ -983,6 +1014,102 @@ function importBuildings() {
     toast(msg);
     renderBuildingList();
   });
+}
+
+/* 匯入內政部實價登錄 CSV
+   操作流程：1) 內政部官網下載某季 CSV  2) 輸入地段/路名關鍵字過濾  3) 匯入符合的筆數
+   原始 CSV 標頭範例：鄉鎮市區,交易標的,土地位置建物門牌,土地移轉總面積平方公尺,都市土地使用分區,
+   交易年月日,總價元,單價元平方公尺,建物移轉總面積平方公尺,建物移轉總面積平方公尺,移轉層次,總樓層數,
+   建物型態,屋齡,建物現況格局-房,建物現況格局-廳,建物現況格局-衛,有無管理組織,車位類別 等
+   注意：CSV 第一行是「英文鍵」，第二行才是「中文標頭」（內政部格式如此） */
+function importActualPriceCSV() {
+  const filter = prompt('輸入地段／路名／鄉鎮關鍵字（只匯入名稱含此字串的筆數，避免一次塞入幾千筆）：\n\n例如：「國富」「花蓮市」「中正路」\n留空＝全部匯入（不建議，可能很大）','');
+  if (filter === null) return;
+  pickCSVFile(text => {
+    const grid = parseCSV(text);
+    if (grid.length < 2) { toast('檔案是空的或格式錯誤', true); return; }
+    // 內政部 CSV：第一行可能是英文 key 或中文。找出中文標頭那一行（含「鄉鎮市區」等字）
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(grid.length, 3); i++) {
+      if (grid[i].some(c => /鄉鎮市區|交易標的|土地位置|建物門牌/.test(c))) { headerIdx = i; break; }
+      // 英文鍵的第一行也算（the_use_zoning_or_compiles 等），直接用第一行
+    }
+    if (headerIdx < 0) headerIdx = 0;  // 預設用第一行
+    const headers = grid[headerIdx].map(h => h.trim());
+    const idx = name => {
+      // 多種可能的中文標頭找一找
+      const aliases = {
+        district: ['鄉鎮市區','行政區'],
+        address: ['土地位置建物門牌','土地區段位置建物區段門牌','土地區段位置/建物區段門牌','建物門牌'],
+        type: ['交易標的','建物型態'],
+        date: ['交易年月日','交易日期'],
+        total: ['總價元','總價'],
+        unitsqm: ['單價元平方公尺','單價元/平方公尺','單價'],
+        land_sqm: ['土地移轉總面積平方公尺','土地面積'],
+        bld_sqm: ['建物移轉總面積平方公尺','建物面積'],
+        floor: ['移轉層次','樓層'],
+        total_floor: ['總樓層數','總樓層'],
+        bld_type: ['建物型態'],
+        age: ['屋齡'],
+        rooms: ['建物現況格局-房','房數'],
+        living: ['建物現況格局-廳','廳數'],
+        bath: ['建物現況格局-衛','衛數'],
+        parking: ['車位類別','停車位類型'],
+        zoning: ['都市土地使用分區','使用分區']
+      };
+      const candidates = aliases[name] || [name];
+      for (const c of candidates) {
+        const j = headers.indexOf(c);
+        if (j >= 0) return j;
+      }
+      return -1;
+    };
+    let added = 0, filtered = 0;
+    for (let i = headerIdx + 1; i < grid.length; i++) {
+      const row = grid[i];
+      if (!row || row.length < 3) continue;
+      const get = key => { const j = idx(key); return j >= 0 ? (row[j]||'').trim() : ''; };
+      const addr = get('address');
+      const district = get('district');
+      if (!addr && !district) continue;
+      // 過濾
+      if (filter && filter.trim()) {
+        const txt = (district + ' ' + addr);
+        if (txt.indexOf(filter.trim()) < 0) { filtered++; continue; }
+      }
+      // 內政部日期格式 = 民國年(沒有/也沒-)，例如 1140601 = 民國114年6月1日
+      const dateRaw = get('date');
+      let txnDate = null;
+      const dm = dateRaw.match(/^(\d{2,3})(\d{2})(\d{2})$/);
+      if (dm) txnDate = `${parseInt(dm[1])+1911}-${dm[2]}-${dm[3]}`;
+      const totalPrice = parseFloat(get('total')) || null;
+      const unitSqm = parseFloat(get('unitsqm')) || null;
+      const buildingSqm = parseFloat(get('bld_sqm')) || null;
+      const landSqm = parseFloat(get('land_sqm')) || null;
+      const unitPing = unitSqm ? Math.round(unitSqm / 0.3025) : null;
+      const floorTxt = get('floor') + (get('total_floor') ? '／' + get('total_floor') : '');
+      const ageVal = parseFloat(get('age')) || null;
+      const rooms = [get('rooms'),get('living'),get('bath')].filter(x=>x).join('/');
+      run("INSERT INTO actual_price_records (district,address,building_type,transaction_date,total_price,unit_price_per_sqm,unit_price_per_ping,land_area_sqm,building_area_sqm,floor_info,age,rooms,parking,zoning,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [district, addr, get('bld_type')||get('type'), txnDate, totalPrice, unitSqm, unitPing, landSqm, buildingSqm, floorTxt, ageVal, rooms, get('parking'), get('zoning'), now()]);
+      added++;
+    }
+    autoSave();
+    let msg = `匯入完成：${added} 筆`;
+    if (filtered) msg += `（過濾掉 ${filtered} 筆不含「${filter}」的）`;
+    toast(msg);
+    renderValuationList();
+  });
+}
+/* 清空所有實價登錄參考資料 */
+function clearActualPriceRecords() {
+  const cnt = query("SELECT COUNT(*) c FROM actual_price_records")[0].c;
+  if (!cnt) { toast('沒有資料可清', true); return; }
+  if (!confirm(`目前有 ${cnt} 筆實價登錄參考資料，確定全部清空？\n（這不影響你自己手動建立的物件評估）`)) return;
+  run("DELETE FROM actual_price_records");
+  autoSave();
+  toast('已清空實價登錄參考資料');
+  renderValuationList();
 }
 
 window.addEventListener('DOMContentLoaded', boot);
