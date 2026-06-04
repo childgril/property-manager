@@ -212,17 +212,16 @@ function unassignDeed(assignId, propId) {
 
 /* ====================== 物件價值（市值評估） ====================== */
 function renderValuationList() {
-  const props = query("SELECT property_id, name, door_address FROM properties ORDER BY property_id");
+  const props = query("SELECT property_id, name, door_address, suggested_price, suggested_price_notes FROM properties ORDER BY property_id");
   const aprCount = query("SELECT COUNT(*) c FROM actual_price_records")[0].c;
   let html = `<h2 class="page-title">物件價值</h2>
-    <div class="page-desc">記錄各物件的市值評估、實價登錄參考、仲介估價等，方便買賣談價時調出資料。</div>
+    <div class="page-desc">為每個物件記錄多次評估，每次評估含「建議售價」與「鄰近成交參考」。歷史保留以看漲跌趨勢。</div>
     <div class="toolbar" style="margin-bottom:14px">
       <button class="btn" onclick="importActualPriceCSV()">📥 匯入內政部實價登錄 CSV</button>
       ${aprCount?`<span style="color:var(--text-dim);margin-left:8px">已有 ${aprCount} 筆實價登錄參考資料</span><button class="btn ghost" onclick="clearActualPriceRecords()">🗑 清空實登資料</button>`:''}
     </div>
     <div class="note" style="background:#fef3c7;border-color:#fde68a;color:#92400e;margin-bottom:14px">
-      💡 提示：系統無法自動抓市價。請先到內政部下載 CSV、或從實價登錄/591 查到資料後手動填入。<br>
-      📥 匯入 CSV 時可輸入「地段關鍵字」（例：國富、花蓮市）只匯入相關區域，避免資料過多。
+      💡 用法：先「+ 新增一次評估」設定建議售價，再到底下加當時參考的成交案例。隔幾年再評一次，建立漲跌歷史。
     </div>`;
   if (!props.length) {
     html += `<div class="note">尚無物件。請先到「不動產物件」或在總覽按「↻ 重新整理物件」建立物件。</div>`;
@@ -230,17 +229,32 @@ function renderValuationList() {
     return;
   }
   props.forEach(p => {
-    const vs = query("SELECT * FROM property_valuations WHERE property_id=? ORDER BY valuation_date DESC, valuation_id DESC", [p.property_id]);
-    const propFull = query("SELECT * FROM properties WHERE property_id=?", [p.property_id])[0];
+    const sessions = query("SELECT * FROM valuation_sessions WHERE property_id=? ORDER BY session_date DESC, session_id DESC", [p.property_id]);
+    const latest = sessions[0];
+    const oldest = sessions[sessions.length-1];
     const addr = p.door_address || p.name;
     const enc = encodeURIComponent(addr);
+    // 漲跌趨勢（多筆場次才顯示）
+    let trendHtml = '';
+    if (sessions.length >= 2 && latest.suggested_price && oldest.suggested_price) {
+      const diff = latest.suggested_price - oldest.suggested_price;
+      const pct = (diff / oldest.suggested_price * 100).toFixed(1);
+      const sign = diff>=0?'+':'';
+      const color = diff>=0?'#16a34a':'#dc2626';
+      trendHtml = `<div style="margin:6px 14px;padding:8px 12px;background:#f0f9ff;border-radius:6px;font-size:13px;color:#0369a1">
+        📈 趨勢：${esc(oldest.session_date||'')} $${fmt(oldest.suggested_price)} → ${esc(latest.session_date||'')} $${fmt(latest.suggested_price)}　
+        <span style="color:${color};font-weight:700">${sign}${fmt(diff)} (${sign}${pct}%)</span>
+      </div>`;
+    }
     html += `<div class="card" style="margin-bottom:14px">
       <div class="card-head">
         <h3>${esc(p.name)}</h3>
-        ${propFull.suggested_price?`<span style="color:#7c3aed;font-weight:700;font-size:18px">建議售價 $${fmt(propFull.suggested_price)}</span>${propFull.suggested_price_notes?`<span style="color:var(--text-dim);font-size:13px">（${esc(propFull.suggested_price_notes)}）</span>`:''}`:'<span style="color:var(--text-dim);font-size:14px">尚未設定建議售價</span>'}
-        <button class="btn ghost" style="margin-left:auto" onclick="openSuggestedPriceForm(${p.property_id})">${propFull.suggested_price?'✏ 編輯建議售價':'💰 設定建議售價'}</button>
-        <button class="btn" onclick="openValuationForm(${p.property_id})">+ 新增成交參考</button>
+        ${latest && latest.suggested_price ?
+          `<span style="color:#7c3aed;font-weight:700;font-size:20px">建議售價 $${fmt(latest.suggested_price)}</span><span style="color:var(--text-dim);font-size:13px">（依 ${esc(latest.session_date||'')} 評估）</span>`
+          : '<span style="color:var(--text-dim);font-size:14px">尚未評估</span>'}
+        <button class="btn" style="margin-left:auto" onclick="openSessionForm(${p.property_id})">+ 新增一次評估</button>
       </div>
+      ${trendHtml}
       <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 4px 10px">
         <a class="btn ghost" target="_blank" href="https://lvr.land.moi.gov.tw/jsp/list.jsp">🔍 實價登錄</a>
         <a class="btn ghost" target="_blank" href="https://www.591.com.tw/?keyword=${enc}">🔍 591</a>
@@ -248,62 +262,80 @@ function renderValuationList() {
         <a class="btn ghost" target="_blank" href="https://buy.yungching.com.tw/region/${enc}">🔍 永慶房屋</a>
         <a class="btn ghost" target="_blank" href="https://www.google.com/search?q=${enc}+實價登錄">🔍 Google 搜尋</a>
       </div>`;
-    if (vs.length) {
-      html += `<table style="font-size:13px"><thead><tr><th>成交日</th><th>來源</th><th>地址</th><th>型態</th><th>樓層</th><th>屋齡</th><th>格局</th><th>車位</th><th class="right">主建物㎡</th><th class="right">附屬㎡</th><th class="right">共用㎡</th><th class="right">車位㎡</th><th class="right">總面積㎡</th><th class="right">總價</th><th class="right">每坪</th><th class="right">車位價</th><th>備註</th><th>照片</th><th></th></tr></thead><tbody>`;
-      vs.forEach(v => {
-        const thumb = v.photo ? `<img src="data:image/jpeg;base64,${v.photo}" style="width:42px;height:42px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="event.stopPropagation();showPhotoFull(${v.valuation_id})">` : '—';
-        html += `<tr>
-          <td class="mono">${esc(v.valuation_date)||'—'}</td>
-          <td>${enumLabel('valuation_source',v.source)||'—'}${v.source_url?` <a href="${esc(v.source_url)}" target="_blank" style="font-size:12px">[連結]</a>`:''}</td>
-          <td style="max-width:200px;font-size:12px">${esc(v.ref_address)||'—'}</td>
-          <td>${esc(v.ref_building_type)||'—'}</td>
-          <td>${esc(v.ref_floor)||'—'}</td>
-          <td class="mono right">${v.ref_age?v.ref_age+'年':'—'}</td>
-          <td>${esc(v.ref_rooms)||'—'}</td>
-          <td>${esc(v.ref_parking)||'—'}</td>
-          <td class="mono right">${v.main_area_ping?v.main_area_ping:'—'}</td>
-          <td class="mono right">${v.aux_area_ping?v.aux_area_ping:'—'}</td>
-          <td class="mono right">${v.common_area_ping?v.common_area_ping:'—'}</td>
-          <td class="mono right">${v.parking_area_ping?v.parking_area_ping:'—'}</td>
-          <td class="mono right"><b>${v.total_area_ping?v.total_area_ping:'—'}</b></td>
-          <td class="mono right"><b>$${fmt(v.market_value)}</b></td>
-          <td class="mono right">${v.price_per_ping?'$'+fmt(v.price_per_ping):'—'}</td>
-          <td class="mono right">${v.parking_price?'$'+fmt(v.parking_price):'—'}</td>
-          <td style="font-size:12px;color:var(--text-dim);max-width:160px">${esc(v.notes)||''}</td>
-          <td>${thumb}</td>
-          <td><div class="row-actions"><button class="icon-btn" onclick="openValuationForm(${p.property_id},${v.valuation_id})">編輯</button><button class="icon-btn del" onclick="deleteValuation(${v.valuation_id})">刪除</button></div></td>
-        </tr>`;
-      });
-      html += `</tbody></table>`;
+    if (sessions.length === 0) {
+      html += `<div style="padding:20px;text-align:center;color:var(--text-dim)">尚無評估記錄，按上方「+ 新增一次評估」開始</div>`;
     } else {
-      html += `<div style="padding:14px;color:var(--text-dim);text-align:center">尚無成交參考記錄</div>`;
+      sessions.forEach((s, idx) => {
+        const isLatest = idx === 0;
+        const vs = query("SELECT * FROM property_valuations WHERE session_id=? ORDER BY valuation_date DESC, valuation_id DESC", [s.session_id]);
+        html += `<div style="margin:10px 14px;border:1px solid var(--border);border-radius:8px;background:${isLatest?'#fafbfd':'white'}">
+          <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font-size:16px;font-weight:600">📅 ${esc(s.session_date)||'未填日期'} 評估${isLatest?'<span style="color:#7c3aed;font-size:12px;margin-left:6px;padding:2px 8px;background:#ede9fe;border-radius:10px">最新</span>':''}</span>
+            <span style="font-size:18px;color:#7c3aed;font-weight:700;margin-left:8px">${s.suggested_price?'建議售價 $'+fmt(s.suggested_price):'<span style="color:var(--text-dim);font-size:14px">未設定建議售價</span>'}</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <button class="icon-btn" onclick="openSessionForm(${p.property_id},${s.session_id})">編輯本次</button>
+              <button class="icon-btn" onclick="openValuationForm(${s.session_id})">+ 加參考</button>
+              <button class="icon-btn del" onclick="deleteSession(${s.session_id})">刪除本次</button>
+            </div>
+          </div>
+          ${s.reasoning?`<div style="padding:8px 14px;color:var(--text-dim);font-size:13px;border-bottom:1px solid var(--border)">💭 ${esc(s.reasoning)}</div>`:''}`;
+        if (vs.length === 0) {
+          html += `<div style="padding:12px 14px;color:var(--text-dim);font-size:13px;text-align:center">尚無成交參考案例</div>`;
+        } else {
+          html += `<div style="overflow-x:auto"><table style="font-size:12.5px;margin:0"><thead><tr><th>成交日</th><th>來源</th><th>地址</th><th>型態</th><th>樓層</th><th>屋齡</th><th>格局</th><th>車位</th><th class="right">主㎡</th><th class="right">附㎡</th><th class="right">共㎡</th><th class="right">車㎡</th><th class="right">總㎡</th><th class="right">總價</th><th class="right">每坪</th><th class="right">車位價</th><th>備註</th><th>照片</th><th></th></tr></thead><tbody>`;
+          vs.forEach(v => {
+            const thumb = v.photo ? `<img src="data:image/jpeg;base64,${v.photo}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="event.stopPropagation();showPhotoFull(${v.valuation_id})">` : '—';
+            html += `<tr>
+              <td class="mono">${esc(v.valuation_date)||'—'}</td>
+              <td>${enumLabel('valuation_source',v.source)||'—'}${v.source_url?` <a href="${esc(v.source_url)}" target="_blank" style="font-size:11px">🔗</a>`:''}</td>
+              <td style="max-width:160px;font-size:12px">${esc(v.ref_address)||'—'}</td>
+              <td>${esc(v.ref_building_type)||'—'}</td>
+              <td>${esc(v.ref_floor)||'—'}</td>
+              <td class="mono right">${v.ref_age?v.ref_age+'年':'—'}</td>
+              <td>${esc(v.ref_rooms)||'—'}</td>
+              <td>${esc(v.ref_parking)||'—'}</td>
+              <td class="mono right">${v.main_area_ping||'—'}</td>
+              <td class="mono right">${v.aux_area_ping||'—'}</td>
+              <td class="mono right">${v.common_area_ping||'—'}</td>
+              <td class="mono right">${v.parking_area_ping||'—'}</td>
+              <td class="mono right"><b>${v.total_area_ping||'—'}</b></td>
+              <td class="mono right"><b>$${fmt(v.market_value)}</b></td>
+              <td class="mono right">${v.price_per_ping?'$'+fmt(v.price_per_ping):'—'}</td>
+              <td class="mono right">${v.parking_price?'$'+fmt(v.parking_price):'—'}</td>
+              <td style="font-size:11px;color:var(--text-dim);max-width:120px">${esc(v.notes)||''}</td>
+              <td>${thumb}</td>
+              <td><div class="row-actions"><button class="icon-btn" onclick="openValuationForm(${s.session_id},${v.valuation_id})">編輯</button><button class="icon-btn del" onclick="deleteValuation(${v.valuation_id})">刪除</button></div></td>
+            </tr>`;
+          });
+          html += `</tbody></table></div>`;
+        }
+        html += `</div>`;
+      });
     }
-    // 鄰近實價登錄參考：抓地址含此物件門牌關鍵字（取門牌前幾個字）
+    // 鄰近實價登錄參考
     if (aprCount) {
-      const addr = p.door_address || p.name || '';
-      // 取地址前4-6字當關鍵字（如「花蓮市國富」），擷取到第一個數字之前
-      let kw = addr.replace(/[0-9０-９]+.*/,'').trim();
+      const addrx = p.door_address || p.name || '';
+      let kw = addrx.replace(/[0-9０-９]+.*/,'').trim();
       if (kw.length >= 3) {
         const aprs = query("SELECT * FROM actual_price_records WHERE address LIKE ? OR district LIKE ? ORDER BY transaction_date DESC LIMIT 10", ['%'+kw+'%','%'+kw+'%']);
         if (aprs.length) {
           html += `<div style="margin:8px 14px 4px;padding:8px 12px;background:#eff6ff;border-radius:6px;font-size:13px;color:#1e40af">
             🔍 鄰近實價登錄參考（地址含「${esc(kw)}」共 ${aprs.length} 筆，顯示最新10筆）
           </div>
-          <table style="font-size:12.5px"><thead><tr><th>交易日</th><th>地址</th><th>型態</th><th class="right">總價</th><th class="right">每坪</th><th>建坪</th><th>樓層</th><th>屋齡</th><th>房廳衛</th></tr></thead><tbody>`;
+          <div style="overflow-x:auto"><table style="font-size:12px;margin:0 14px 12px"><thead><tr><th>交易日</th><th>地址</th><th>型態</th><th class="right">總價</th><th class="right">每坪</th><th>建坪</th><th>樓層</th><th>屋齡</th></tr></thead><tbody>`;
           aprs.forEach(a => {
             html += `<tr>
               <td class="mono">${esc(a.transaction_date)||'—'}</td>
-              <td>${esc(a.address)||'—'}</td>
+              <td style="max-width:200px">${esc(a.address)||'—'}</td>
               <td>${esc(a.building_type)||'—'}</td>
               <td class="mono right"><b>$${fmt(a.total_price)}</b></td>
               <td class="mono right">${a.unit_price_per_ping?'$'+fmt(a.unit_price_per_ping):'—'}</td>
               <td class="mono">${a.building_area_sqm?(a.building_area_sqm*0.3025).toFixed(2)+'坪':'—'}</td>
               <td>${esc(a.floor_info)||'—'}</td>
               <td>${a.age?a.age+'年':'—'}</td>
-              <td>${esc(a.rooms)||'—'}</td>
             </tr>`;
           });
-          html += `</tbody></table>`;
+          html += `</tbody></table></div>`;
         }
       }
     }
@@ -311,12 +343,70 @@ function renderValuationList() {
   });
   $('#valuations').innerHTML = html;
 }
-function openValuationForm(propId, vid) {
-  const v = vid ? query("SELECT * FROM property_valuations WHERE valuation_id=?", [vid])[0] : {};
+
+/* === 評估場次：新增/編輯 === */
+function openSessionForm(propId, sid) {
+  const s = sid ? query("SELECT * FROM valuation_sessions WHERE session_id=?", [sid])[0] : {};
   const p = query("SELECT * FROM properties WHERE property_id=?", [propId])[0];
+  openModal(`
+    <div class="modal-head"><h3>${sid?'編輯':'新增'}評估場次 · ${esc(p.name)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      ${fieldRocDate('session_date','評估日期',s.session_date,{hint:'這次評估的日期（例如今天，或某年某月）'})}
+      ${fieldText('suggested_price','建議售價（新台幣）',s.suggested_price,{type:'number',ph:'例：5500000（550萬）',hint:'你想開的價格'})}
+      ${fieldText('reasoning','評估理由',s.reasoning,{full:true,ph:'例：依鄰近成交均價 +10%、屋況良好、含車位等'})}
+    </div></div>
+    <div class="modal-foot">
+      <span style="color:var(--text-dim);font-size:13px">儲存後可在底下加成交參考案例</span>
+      <div><button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="saveSession(${propId},${sid||0})">儲存</button></div>
+    </div>`);
+}
+function saveSession(propId, sid) {
+  const f = document.querySelector('#modal');
+  const data = {
+    property_id: propId,
+    session_date: readRocDate('session_date'),
+    suggested_price: parseFloat(f.querySelector('[name="suggested_price"]').value) || null,
+    reasoning: f.querySelector('[name="reasoning"]').value || null
+  };
+  try {
+    if (sid) {
+      run("UPDATE valuation_sessions SET session_date=?, suggested_price=?, reasoning=? WHERE session_id=?",
+        [data.session_date, data.suggested_price, data.reasoning, sid]);
+    } else {
+      data.created_at = now();
+      run("INSERT INTO valuation_sessions (property_id, session_date, suggested_price, reasoning, created_at) VALUES (?,?,?,?,?)",
+        [data.property_id, data.session_date, data.suggested_price, data.reasoning, data.created_at]);
+    }
+    autoSave(); closeModal();
+    toast(sid?'已更新評估':'已新增評估');
+    setTimeout(()=>renderValuationList(), 50);
+  } catch(e) {
+    alert('儲存失敗：' + e.message);
+  }
+}
+function deleteSession(sid) {
+  const cnt = query("SELECT COUNT(*) c FROM property_valuations WHERE session_id=?", [sid])[0].c;
+  if (!confirm(`確定刪除這次評估？\n\n${cnt?`會同時刪除底下 ${cnt} 筆成交參考。`:''}此動作無法復原。`)) return;
+  try {
+    run("DELETE FROM property_valuations WHERE session_id=?", [sid]);
+    run("DELETE FROM valuation_sessions WHERE session_id=?", [sid]);
+    autoSave();
+    toast('已刪除');
+    setTimeout(()=>renderValuationList(), 50);
+  } catch(e) {
+    alert('刪除失敗：' + e.message);
+  }
+}
+
+/* === 成交參考：綁定到某個評估場次 === */
+function openValuationForm(sessionId, vid) {
+  const v = vid ? query("SELECT * FROM property_valuations WHERE valuation_id=?", [vid])[0] : {};
+  const s = query("SELECT s.*, p.name pname FROM valuation_sessions s JOIN properties p ON p.property_id=s.property_id WHERE s.session_id=?", [sessionId])[0];
+  if (!s) { alert('找不到評估場次'); return; }
   const photoSrc = v.photo ? `data:image/jpeg;base64,${v.photo}` : '';
   openModal(`
-    <div class="modal-head"><h3>${vid?'編輯':'新增'}成交參考 · ${esc(p.name)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>${vid?'編輯':'新增'}成交參考 · ${esc(s.pname)} · ${esc(s.session_date||'')} 評估</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="field full" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px">
         <label style="color:#1e40af">📋 貼上文字自動填入（樂屋網／實價登錄／591 複製貼上）</label>
@@ -330,16 +420,16 @@ function openValuationForm(propId, vid) {
       ${fieldSelect('source','資料來源','valuation_source',v.source)}
       ${fieldText('ref_address','地址',v.ref_address,{full:true,ph:'例：花蓮市國富十一街32號2樓之2'})}
       ${fieldText('ref_building_type','物件型態',v.ref_building_type,{ph:'華廈／公寓／透天／套房'})}
-      ${fieldText('ref_floor','樓層',v.ref_floor,{ph:'例:2/5樓'})}
-      ${fieldText('ref_age','屋齡(年)',v.ref_age,{type:'number',ph:'例:28.7'})}
-      ${fieldText('ref_rooms','格局(房/廳/衛)',v.ref_rooms,{ph:'例:2/1/1'})}
-      ${fieldText('ref_parking','車位個數',v.ref_parking,{ph:'例:1個、無車位'})}
+      ${fieldText('ref_floor','樓層',v.ref_floor,{ph:'例：2/5樓'})}
+      ${fieldText('ref_age','屋齡（年）',v.ref_age,{type:'number',ph:'例：28.7'})}
+      ${fieldText('ref_rooms','格局（房/廳/衛）',v.ref_rooms,{ph:'例：2/1/1'})}
+      ${fieldText('ref_parking','車位個數',v.ref_parking,{ph:'例：1個、無車位'})}
 
       <div class="section-label">面積（坪）</div>
       ${fieldText('main_area_ping','主建物面積',v.main_area_ping,{type:'number',ph:'例：19.49'})}
       ${fieldText('aux_area_ping','附屬面積',v.aux_area_ping,{type:'number',ph:'例：1.2'})}
       ${fieldText('common_area_ping','共用面積',v.common_area_ping,{type:'number',ph:'例：3.5'})}
-      ${fieldText('parking_area_ping','車位面積',v.parking_area_ping,{type:'number',ph:'例:8'})}
+      ${fieldText('parking_area_ping','車位面積',v.parking_area_ping,{type:'number',ph:'例：8'})}
       <div class="field full">
         <label>總面積（坪）</label>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -369,15 +459,15 @@ function openValuationForm(propId, vid) {
     <div class="modal-foot">
       <span></span>
       <div><button class="btn ghost" onclick="closeModal()">取消</button>
-      <button class="btn" onclick="saveValuation(${propId},${vid||0})">儲存</button></div>
+      <button class="btn" onclick="saveValuation(${sessionId},${vid||0})">儲存</button></div>
     </div>`);
-  // 綁定面積欄位變動 → 自動更新加總顯示
   ['main_area_ping','aux_area_ping','common_area_ping','parking_area_ping'].forEach(name => {
     const el = document.querySelector(`#modal [name="${name}"]`);
     if (el) el.addEventListener('input', updateValuationAreaSum);
   });
   updateValuationAreaSum();
 }
+
 function handleValuationPhoto(e) {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
@@ -394,7 +484,7 @@ function handleValuationPhoto(e) {
       const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
       const base64 = dataUrl.split(',')[1];
       document.getElementById('valuationPhotoData').value = base64;
-      document.getElementById('valuationPhotoPreview').innerHTML = 
+      document.getElementById('valuationPhotoPreview').innerHTML =
         `<img src="${dataUrl}" style="max-width:300px;max-height:300px;border-radius:6px;border:1px solid var(--border)"><br><button type="button" class="btn ghost" style="margin-top:6px" onclick="clearValuationPhoto()">移除照片</button>`;
     };
     img.src = ev.target.result;
@@ -406,9 +496,6 @@ function clearValuationPhoto() {
   document.getElementById('valuationPhotoPreview').innerHTML = '';
 }
 
-/* 解析貼上的文字，自動填入評估表單欄位
-   支援：總價、每坪、坪數、地坪、樓層、屋齡、房廳衛、車位、型態、地址、日期（民國/西元）
-   策略：用正則抓「關鍵字+數字+單位」，認到就填，認不到就跳過（保留原值） */
 function parseAndFillValuation() {
   const txt = (document.getElementById('autoParseText').value || '').trim();
   if (!txt) { toast('請先貼入文字', true); return; }
@@ -423,11 +510,10 @@ function parseAndFillValuation() {
   const filled = [];
   const lines = txt.split(/[\n\r]+/).map(s=>s.trim()).filter(x=>x);
 
-  // === 1) 評估日期：嚴格抓「年月」格式，避免地址裡的「148巷2弄」誤判 ===
+  // 日期
   let m = txt.match(/民國\s*(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
   if (!m) m = txt.match(/(?<![\d巷弄號之])(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
   if (!m) {
-    // 105-06 或 114/06：單獨一行，或行開頭後接型態（樂屋網格式）
     const dateLine = lines.find(l => /^(?:成交年月\s*)?\d{2,3}\s*[-\/]\s*\d{1,2}(?:\s|$|\s+(?:華廈|公寓|大樓|透天|別墅|套房|店面))/.test(l));
     if (dateLine) {
       const dm = dateLine.match(/(\d{2,3})\s*[-\/]\s*(\d{1,2})/);
@@ -451,43 +537,37 @@ function parseAndFillValuation() {
     }
   }
 
-  // === 2) 總價：所有「N 萬」中取最大（避免抓到車位 0 萬） ===
+  // 總價（最大的 N 萬）
   const wanMatches = [...txt.matchAll(/(\d{1,5}(?:,\d{3})*(?:\.\d+)?)\s*萬(?!\s*\/)/g)];
   if (wanMatches.length) {
     const values = wanMatches.map(x => parseFloat(x[1].replace(/,/g,'')));
     const max = Math.max(...values);
-    if (max > 0) {
-      set('market_value', Math.round(max * 10000));
-      filled.push(`總價 ${max}萬`);
-    }
+    if (max > 0) { set('market_value', Math.round(max*10000)); filled.push(`總價 ${max}萬`); }
   }
 
-  // === 3) 每坪單價 ===
+  // 每坪
   m = txt.match(/(\d+(?:\.\d+)?)\s*萬\s*\/\s*坪/);
-  if (m) {
-    const wan = parseFloat(m[1]);
-    set('price_per_ping', Math.round(wan * 10000));
-    filled.push(`每坪 ${wan}萬`);
-  } else {
+  if (m) { set('price_per_ping', Math.round(parseFloat(m[1])*10000)); filled.push(`每坪 ${m[1]}萬`); }
+  else {
     m = txt.match(/([\d,]{5,})\s*元?\s*\/\s*坪/);
     if (m) { set('price_per_ping', parseFloat(m[1].replace(/,/g,''))); filled.push('每坪'); }
   }
 
-  // === 4) 主建物面積（坪） ===
+  // 主建物
   m = txt.match(/(?:主建物|主建)\s*[:：]?\s*(\d+(?:\.\d+)?)\s*坪?/);
   if (!m) m = txt.match(/(?:總建坪|建坪)\s*[:：]?\s*(\d+(?:\.\d+)?)/);
   if (!m) m = txt.match(/\d+\s*房\s*\/\s*(\d+(?:\.\d+)?)\s*坪/);
   if (m) { set('main_area_ping', parseFloat(m[1])); filled.push(`主建物 ${m[1]}坪`); }
 
-  // === 5) 附屬面積（坪） ===
+  // 附屬
   m = txt.match(/附屬(?:建物)?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*坪?/);
   if (m) { set('aux_area_ping', parseFloat(m[1])); filled.push(`附屬 ${m[1]}坪`); }
 
-  // === 6) 共用/公設面積（坪） ===
+  // 共用
   m = txt.match(/(?:共用|公設|共有部分)\s*[:：]?\s*(\d+(?:\.\d+)?)\s*坪?/);
   if (m) { set('common_area_ping', parseFloat(m[1])); filled.push(`共用 ${m[1]}坪`); }
 
-  // === 7) 車位面積（坪）與車位價格（萬） ===
+  // 車位面積、車位價格
   m = txt.match(/車位(?:面積)?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*坪/);
   if (!m) m = txt.match(/(\d+(?:\.\d+)?)\s*坪\s*車位/);
   if (m) { set('parking_area_ping', parseFloat(m[1])); filled.push(`車位 ${m[1]}坪`); }
@@ -497,11 +577,11 @@ function parseAndFillValuation() {
     filled.push(`車位價 ${m[1]}萬`);
   }
 
-  // === 7.5) 總面積（坪）===
+  // 總面積
   m = txt.match(/總面積\s*[:：]?\s*(\d+(?:\.\d+)?)\s*坪?/);
   if (m) { set('total_area_ping', parseFloat(m[1])); filled.push(`總面積 ${m[1]}坪`); }
 
-  // === 8) 樓層：「2/5樓」「樓層 3樓」「3樓之2」 ===
+  // 樓層
   m = txt.match(/(\d+)\s*[\/／]\s*(\d+)\s*樓/);
   if (!m) m = txt.match(/(\d+)樓\s*[\/／]\s*(\d+)樓/);
   if (m) { set('ref_floor', `${m[1]}/${m[2]}樓`); filled.push(`樓層 ${m[1]}/${m[2]}樓`); }
@@ -513,17 +593,16 @@ function parseAndFillValuation() {
     }
   }
 
-  // === 9) 屋齡：「屋齡 28.7年」「28.7年屋齡」 ===
+  // 屋齡
   m = txt.match(/屋齡\s*[:：]?\s*(\d+(?:\.\d+)?)/);
   if (!m) m = txt.match(/(\d+(?:\.\d+)?)\s*年\s*屋齡/);
   if (m) { set('ref_age', parseFloat(m[1])); filled.push(`屋齡 ${m[1]}年`); }
 
-  // === 9.5) 格局(房廳衛)：「2/1/1」「2房1廳1衛」「1房」 ===
+  // 格局
   m = txt.match(/(\d)\s*[\/／]\s*(\d|--|—)\s*[\/／]\s*(\d|--|—)/);
   if (m) {
     const r = m[1], l = (m[2]==='--'||m[2]==='—')?'--':m[2], b = (m[3]==='--'||m[3]==='—')?'--':m[3];
-    set('ref_rooms', `${r}/${l}/${b}`);
-    filled.push(`格局 ${r}/${l}/${b}`);
+    set('ref_rooms', `${r}/${l}/${b}`); filled.push(`格局 ${r}/${l}/${b}`);
   } else {
     m = txt.match(/(\d)\s*房\s*(\d)\s*廳\s*(\d)\s*衛/);
     if (m) { set('ref_rooms', `${m[1]}/${m[2]}/${m[3]}`); filled.push(`格局 ${m[1]}/${m[2]}/${m[3]}`); }
@@ -533,18 +612,15 @@ function parseAndFillValuation() {
     }
   }
 
-  // === 9.6) 車位個數：「無車位」「1個車位」「2 車位」 ===
-  if (/無車位/.test(txt)) { set('ref_parking', '無車位'); filled.push('無車位'); }
-  else {
-    const pm = txt.match(/(\d+)\s*個?\s*車位/);
-    if (pm) { set('ref_parking', `${pm[1]}個車位`); filled.push(`${pm[1]}個車位`); }
-  }
+  // 車位個數
+  if (/無車位/.test(txt)) { set('ref_parking','無車位'); filled.push('無車位'); }
+  else { const pm = txt.match(/(\d+)\s*個?\s*車位/); if (pm) { set('ref_parking',`${pm[1]}個車位`); filled.push(`${pm[1]}個車位`); } }
 
-  // === 10) 物件型態 ===
+  // 型態
   m = txt.match(/(華廈|電梯大樓|電梯華廈|公寓|透天厝|透天|大樓|別墅|套房|店面|辦公|廠房|農舍|住宅|住家)/);
   if (m) { set('ref_building_type', m[1]); filled.push(`型態 ${m[1]}`); }
 
-  // === 11) 地址：包含 路/街/巷/弄/段/號 且不含坪萬樓等關鍵字 ===
+  // 地址
   let addr = lines.find(line =>
     line.length >= 4 && line.length <= 80 &&
     /[路街巷弄段號]/.test(line) &&
@@ -552,20 +628,23 @@ function parseAndFillValuation() {
   );
   if (addr) {
     addr = addr.replace(/\s*\|\s*/g,' ').replace(/操作$/,'').trim();
-    set('ref_address', addr);
-    filled.push('地址');
+    set('ref_address', addr); filled.push('地址');
   }
-
-  if (filled.length) toast(`已解析填入:${filled.join('、')}`);
-  else toast('沒有解析到任何欄位,請檢查文字格式或手動填寫', true);
+  updateValuationAreaSum();
+  if (filled.length) toast(`已解析填入：${filled.join('、')}`);
+  else toast('沒有解析到任何欄位，請檢查文字格式或手動填寫', true);
 }
 
-function saveValuation(propId, vid) {
+function saveValuation(sessionId, vid) {
   const f = document.querySelector('#modal');
   const photoEl = document.getElementById('valuationPhotoData');
   const photoVal = (photoEl && photoEl.value) || null;
+  // 取得 session 的 property_id
+  const s = query("SELECT property_id FROM valuation_sessions WHERE session_id=?", [sessionId])[0];
+  if (!s) { alert('找不到評估場次'); return; }
   const data = {
-    property_id: propId,
+    session_id: sessionId,
+    property_id: s.property_id,
     valuation_date: readRocDate('valuation_date'),
     source: (f.querySelector('[name="source"]')||{}).value || null,
     market_value: parseFloat((f.querySelector('[name="market_value"]')||{}).value) || null,
@@ -588,53 +667,33 @@ function saveValuation(propId, vid) {
   };
   try {
     if (vid) {
-      const sets = Object.keys(data).filter(k=>k!=='property_id').map(k=>`${k}=?`).join(',');
-      run(`UPDATE property_valuations SET ${sets} WHERE valuation_id=?`, [...Object.keys(data).filter(k=>k!=='property_id').map(k=>data[k]), vid]);
+      const sets = Object.keys(data).filter(k=>k!=='property_id'&&k!=='session_id').map(k=>`${k}=?`).join(',');
+      const vals = Object.keys(data).filter(k=>k!=='property_id'&&k!=='session_id').map(k=>data[k]);
+      run(`UPDATE property_valuations SET ${sets} WHERE valuation_id=?`, [...vals, vid]);
     } else {
       data.created_at = now();
       const cols = Object.keys(data);
       run(`INSERT INTO property_valuations (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
     }
-    autoSave();
-    closeModal();
-    toast(vid?'已更新評估':'已新增評估');
-    renderValuationList();
+    autoSave(); closeModal();
+    toast(vid?'已更新':'已新增成交參考');
+    setTimeout(()=>renderValuationList(), 50);
   } catch(e) {
-    console.error('儲存評估失敗:', e);
-    // 可能是舊 db 缺欄位，跑一次 migrate 後重試
-    try {
-      migrate();
-      data.created_at = data.created_at || now();
-      const cols = Object.keys(data);
-      if (vid) {
-        const sets = Object.keys(data).filter(k=>k!=='property_id').map(k=>`${k}=?`).join(',');
-        run(`UPDATE property_valuations SET ${sets} WHERE valuation_id=?`, [...Object.keys(data).filter(k=>k!=='property_id').map(k=>data[k]), vid]);
-      } else {
-        run(`INSERT INTO property_valuations (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
-      }
-      autoSave();
-      closeModal();
-      toast('已新增評估（已自動補資料表）');
-      renderValuationList();
-    } catch(e2) {
-      alert('儲存失敗：' + e2.message + '\n\n請按 F12 開啟瀏覽器主控台看詳細錯誤，或試試「🗑 清空重來」按鈕重建資料表。');
-    }
+    alert('儲存失敗：' + e.message);
   }
 }
 function deleteValuation(vid) {
-  if (!confirm('確定刪除這筆評估？')) return;
+  if (!confirm('確定刪除這筆成交參考？')) return;
   try {
     run("DELETE FROM property_valuations WHERE valuation_id=?", [vid]);
     autoSave();
     toast('已刪除');
-    // 用 setTimeout 讓 confirm 對話框先確實關閉，再重畫，避免 UI 卡住
-    setTimeout(() => renderValuationList(), 50);
+    setTimeout(()=>renderValuationList(), 50);
   } catch(e) {
     alert('刪除失敗：' + e.message);
   }
 }
 
-/* 評估表單面積加總（主+附+共+車） */
 function updateValuationAreaSum() {
   const f = document.querySelector('#modal'); if (!f) return;
   const g = name => parseFloat((f.querySelector(`[name="${name}"]`)||{}).value) || 0;
@@ -650,37 +709,6 @@ function fillValuationTotal() {
   if (inp) inp.value = sum ? parseFloat(sum.toFixed(2)) : '';
 }
 
-/* 建議售價：編輯表單與儲存 */
-function openSuggestedPriceForm(propId) {
-  const p = query("SELECT * FROM properties WHERE property_id=?", [propId])[0];
-  openModal(`
-    <div class="modal-head"><h3>建議售價 · ${esc(p.name)}</h3><button class="x" onclick="closeModal()">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      ${fieldText('suggested_price','建議售價（新台幣）',p.suggested_price,{type:'number',ph:'例：5500000（550萬）',hint:'你想開的價格，跟人家談價時的參考'})}
-      ${fieldText('suggested_price_notes','說明備註',p.suggested_price_notes,{full:true,ph:'例：依鄰近成交均價 +10%、含車位、屋況極佳等'})}
-    </div></div>
-    <div class="modal-foot">
-      <span></span>
-      <div><button class="btn ghost" onclick="closeModal()">取消</button>
-      <button class="btn" onclick="saveSuggestedPrice(${propId})">儲存</button></div>
-    </div>`);
-}
-function saveSuggestedPrice(propId) {
-  const f = document.querySelector('#modal');
-  const sp = parseFloat(f.querySelector('[name="suggested_price"]').value) || null;
-  const notes = f.querySelector('[name="suggested_price_notes"]').value || null;
-  try {
-    run("UPDATE properties SET suggested_price=?, suggested_price_notes=?, updated_at=? WHERE property_id=?", [sp, notes, now(), propId]);
-    autoSave();
-    closeModal();
-    toast('已更新建議售價');
-    setTimeout(() => renderValuationList(), 50);
-  } catch(e) {
-    alert('儲存失敗：' + e.message);
-  }
-}
-
-/* 點縮圖看大圖：用 modal 顯示 */
 function showPhotoFull(vid) {
   const v = query("SELECT photo FROM property_valuations WHERE valuation_id=?", [vid])[0];
   if (!v || !v.photo) return;
@@ -691,7 +719,27 @@ function showPhotoFull(vid) {
     </div>`);
 }
 
-/* ====================== 買賣交易 ====================== */
+/* === 舊資料相容：把沒 session_id 的成交參考，自動歸到一筆「初始評估」場次 ===
+   會在 boot 後自動跑一次（每物件最多建一個初始場次） */
+function migrateOrphanValuations() {
+  try {
+    const orphans = query("SELECT DISTINCT property_id FROM property_valuations WHERE session_id IS NULL OR session_id = 0");
+    if (!orphans.length) return;
+    orphans.forEach(o => {
+      if (!o.property_id) return;
+      // 沿用 properties.suggested_price 當該場次的建議售價
+      const p = query("SELECT suggested_price, suggested_price_notes FROM properties WHERE property_id=?", [o.property_id])[0] || {};
+      run("INSERT INTO valuation_sessions (property_id, session_date, suggested_price, reasoning, created_at) VALUES (?,?,?,?,?)",
+        [o.property_id, '2024-01-01', p.suggested_price || null, '舊資料自動歸檔的初始評估，可編輯或刪除' + (p.suggested_price_notes?'。原備註：'+p.suggested_price_notes:''), now()]);
+      const sid = query("SELECT session_id FROM valuation_sessions WHERE property_id=? ORDER BY session_id DESC LIMIT 1", [o.property_id])[0].session_id;
+      run("UPDATE property_valuations SET session_id=? WHERE property_id=? AND (session_id IS NULL OR session_id=0)", [sid, o.property_id]);
+    });
+    autoSave();
+  } catch(e) {
+    console.error('migrateOrphanValuations failed:', e);
+  }
+}
+
 function renderTxnList() {
   const rows = query(`SELECT t.*, p.name pname FROM transactions t LEFT JOIN properties p ON p.property_id=t.property_id ORDER BY t.transaction_id DESC`);
   let html = `<h2 class="page-title">買賣交易</h2>

@@ -100,8 +100,17 @@ CREATE TABLE IF NOT EXISTS actual_price_records (
   source_file TEXT,
   created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS valuation_sessions (
+  session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id INTEGER,
+  session_date TEXT,
+  suggested_price REAL,
+  reasoning TEXT,
+  created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS property_valuations (
   valuation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER,
   property_id INTEGER,
   valuation_date TEXT,
   market_value REAL,
@@ -541,6 +550,7 @@ async function boot() {
     }
     db.run(SCHEMA); // 確保表存在
     migrate();      // 自動補上舊資料檔缺少的欄位
+    try { migrateOrphanValuations(); } catch(e) { console.error(e); }  // 舊成交參考→歸檔到初始評估
     $('#boot').style.display = 'none';
     $('#app').style.display = 'flex';
     bindUI();
@@ -651,7 +661,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.04-h</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.05-a</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>
