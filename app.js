@@ -100,6 +100,42 @@ CREATE TABLE IF NOT EXISTS actual_price_records (
   source_file TEXT,
   created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS property_assessments (
+  assessment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id INTEGER,
+  serial_no INTEGER,
+  assessment_date TEXT,
+  acquisition_cost REAL,
+  acquisition_cost_overridden INTEGER DEFAULT 0,
+  suggested_price REAL,
+  reasoning TEXT,
+  market_status TEXT,
+  created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS assessment_comparables (
+  comp_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  assessment_id INTEGER,
+  transaction_date TEXT,
+  address TEXT,
+  building_type TEXT,
+  floor_info TEXT,
+  age REAL,
+  rooms TEXT,
+  parking TEXT,
+  main_area_ping REAL,
+  aux_area_ping REAL,
+  common_area_ping REAL,
+  parking_area_ping REAL,
+  total_area_ping REAL,
+  total_price REAL,
+  price_per_ping REAL,
+  parking_price REAL,
+  source TEXT,
+  source_url TEXT,
+  notes TEXT,
+  photo BLOB,
+  created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS valuation_sessions (
   session_id INTEGER PRIMARY KEY AUTOINCREMENT,
   property_id INTEGER,
@@ -589,7 +625,7 @@ function bindUI() {
   });
 }
 
-const CRUMB = { dashboard:'總覽', lands:'土地權狀', buildings:'建物權狀', deedDetail:'權狀明細', properties:'不動產物件', propDetail:'物件明細', valuations:'物件價值', transactions:'買賣交易', txnDetail:'交易明細', loans:'銀行借貸', loanDetail:'貸款明細' };
+const CRUMB = { dashboard:'總覽', lands:'土地權狀', buildings:'建物權狀', deedDetail:'權狀明細', properties:'不動產物件', propDetail:'物件明細', valuations:'物件價值', assessments:'物件評估', assessmentDetail:'評估明細', transactions:'買賣交易', txnDetail:'交易明細', loans:'銀行借貸', loanDetail:'貸款明細' };
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === id));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === id));
@@ -599,6 +635,7 @@ function showPage(id) {
   if (id === 'buildings') renderBuildingList();
   if (id === 'properties') renderPropertyList();
   if (id === 'valuations') renderValuationList();
+  if (id === 'assessments') renderAssessmentHome();
   if (id === 'transactions') renderTxnList();
   if (id === 'loans') renderLoanList();
   window.scrollTo(0,0);
@@ -661,7 +698,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.05-a</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.05-b</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>

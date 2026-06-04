@@ -1089,3 +1089,600 @@ function deletePay(id, loanId) {
   run("DELETE FROM loan_payments WHERE payment_id=?", [id]);
   autoSave(); toast('已刪除'); openLoanDetail(loanId);
 }
+
+/* ============================================================
+   📊 物件評估模組（獨立新功能）
+   架構：物件 → 多次評估 → 每次評估含多筆鄰近成交參考
+   特色：自動帶取得成本、序號、損益計算、漲跌趨勢
+   ============================================================ */
+
+/* 計算某物件的取得成本（從權狀資料加總）
+   = 該物件下所有土地的(acquisition_cost+各fee) + 所有建物的(acquisition_cost+各fee) */
+function computeAcquisitionCost(propId) {
+  // 取得物件下所有 deed_assignments（土地+建物）
+  const assigns = query("SELECT * FROM deed_assignments WHERE property_id=? AND (is_current IS NULL OR is_current=1)", [propId]);
+  let total = 0;
+  const breakdown = { land: 0, building: 0, fees: 0, lands: [], buildings: [] };
+  assigns.forEach(a => {
+    if (a.deed_type === 'land' && a.land_id) {
+      const land = query("SELECT * FROM lands WHERE land_id=?", [a.land_id])[0];
+      if (land) {
+        const cost = (land.acquisition_cost||0);
+        const fees = (land.fee_land_increment_tax||0) + (land.fee_deed_tax||0) + (land.fee_gift_tax||0) + 
+                     (land.fee_stamp_duty||0) + (land.fee_lawyer||0) + (land.fee_broker||0) + 
+                     (land.fee_registration||0) + (land.fee_other||0);
+        breakdown.land += cost;
+        breakdown.fees += fees;
+        breakdown.lands.push({ deed: land.title_deed_number||land.deed_code||`地#${land.land_id}`, cost, fees });
+        total += cost + fees;
+      }
+    } else if (a.deed_type === 'building' && a.building_id) {
+      const bld = query("SELECT * FROM buildings WHERE building_id=?", [a.building_id])[0];
+      if (bld) {
+        const cost = (bld.acquisition_cost||0);
+        const fees = (bld.fee_land_increment_tax||0) + (bld.fee_deed_tax||0) + (bld.fee_gift_tax||0) + 
+                     (bld.fee_stamp_duty||0) + (bld.fee_lawyer||0) + (bld.fee_broker||0) + 
+                     (bld.fee_registration||0) + (bld.fee_other||0);
+        breakdown.building += cost;
+        breakdown.fees += fees;
+        breakdown.buildings.push({ deed: bld.title_deed_number||bld.building_number||`建#${bld.building_id}`, cost, fees });
+        total += cost + fees;
+      }
+    }
+  });
+  breakdown.total = total;
+  return breakdown;
+}
+
+/* === 第 1 層：物件評估首頁（物件清單） === */
+function renderAssessmentHome() {
+  const props = query("SELECT property_id, name, door_address, current_status FROM properties ORDER BY property_id");
+  let html = `<h2 class="page-title">物件評估</h2>
+    <div class="page-desc">追蹤每個不動產的取得成本、建議售價、報酬率與評估歷史。一般人賣房的完整思考流程。</div>`;
+  if (!props.length) {
+    html += `<div class="note">尚無物件。請先到「不動產物件」或在總覽按「↻ 重新整理物件」建立物件。</div>`;
+    $('#assessments').innerHTML = html;
+    return;
+  }
+  props.forEach(p => {
+    const cost = computeAcquisitionCost(p.property_id);
+    const assessments = query("SELECT * FROM property_assessments WHERE property_id=? ORDER BY serial_no DESC", [p.property_id]);
+    const latest = assessments[0];
+    const oldest = assessments[assessments.length-1];
+    const addr = p.door_address || p.name;
+    // 損益計算
+    let profitHtml = '';
+    if (latest && latest.suggested_price && cost.total) {
+      const profit = latest.suggested_price - cost.total;
+      const pct = (profit/cost.total*100).toFixed(1);
+      const sign = profit>=0?'+':'';
+      const color = profit>=0?'#16a34a':'#dc2626';
+      profitHtml = `<div style="color:${color};font-weight:600">估計毛利 ${sign}$${fmt(profit)} (${sign}${pct}%)</div>`;
+    }
+    // 漲跌趨勢
+    let trendHtml = '';
+    if (assessments.length >= 2 && latest.suggested_price && oldest.suggested_price) {
+      const diff = latest.suggested_price - oldest.suggested_price;
+      const pct = (diff/oldest.suggested_price*100).toFixed(1);
+      const sign = diff>=0?'+':'';
+      const color = diff>=0?'#16a34a':'#dc2626';
+      trendHtml = `<span style="color:${color};font-size:13px">趨勢 ${sign}${pct}%</span>`;
+    }
+    html += `<div class="card" style="margin-bottom:14px;padding:14px;cursor:pointer" onclick="openAssessmentTimeline(${p.property_id})">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:280px">
+          <div style="font-size:17px;font-weight:600;margin-bottom:4px">🏠 ${esc(p.name)}</div>
+          <div style="color:var(--text-dim);font-size:13px;margin-bottom:8px">${esc(addr)}</div>
+          <div style="display:grid;grid-template-columns:auto auto;gap:4px 14px;font-size:13.5px">
+            <div style="color:var(--text-dim)">取得成本</div>
+            <div class="mono">$${fmt(cost.total)} ${cost.total===0?'<span style="color:var(--text-dim);font-size:11px">（權狀未填）</span>':''}</div>
+            <div style="color:var(--text-dim)">最新建議售價</div>
+            <div class="mono">${latest?.suggested_price?'<b style="color:#0891b2">$'+fmt(latest.suggested_price)+'</b>':'<span style="color:var(--text-dim)">尚未評估</span>'}</div>
+          </div>
+          ${profitHtml}
+        </div>
+        <div style="text-align:right;min-width:180px">
+          <div style="font-size:14px;color:var(--text-dim);margin-bottom:6px">
+            ${assessments.length?`已有 <b style="color:#0891b2">${assessments.length}</b> 次評估 ${trendHtml}`:'尚無評估'}
+          </div>
+          ${assessments.length?
+            `<button class="btn ghost" onclick="event.stopPropagation();openAssessmentTimeline(${p.property_id})">→ 查看評估歷史</button>`:
+            `<button class="btn" onclick="event.stopPropagation();openAssessmentForm(${p.property_id})">+ 建立第一次評估</button>`
+          }
+        </div>
+      </div>
+    </div>`;
+  });
+  $('#assessments').innerHTML = html;
+}
+
+/* === 第 2 層：某物件的評估時間軸 === */
+function openAssessmentTimeline(propId) {
+  const p = query("SELECT * FROM properties WHERE property_id=?", [propId])[0];
+  if (!p) return;
+  const cost = computeAcquisitionCost(propId);
+  const assessments = query("SELECT * FROM property_assessments WHERE property_id=? ORDER BY serial_no DESC", [propId]);
+  let html = `<h2 class="page-title">📊 ${esc(p.name)} · 評估歷史</h2>
+    <div class="page-desc">${esc(p.door_address||'')}</div>
+    <div style="margin-bottom:14px"><button class="btn ghost" onclick="showPage('assessments')">← 回到物件清單</button></div>
+    
+    <div class="card" style="margin-bottom:14px;padding:14px">
+      <h3 style="margin-top:0">📋 取得成本資訊（從權狀資料自動帶入）</h3>`;
+  if (cost.total === 0) {
+    html += `<div style="color:var(--text-dim)">這個物件下的權狀尚未填取得成本。請到土地/建物權狀補資料,或在新增評估時手動輸入。</div>`;
+  } else {
+    html += `<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13.5px;max-width:600px">`;
+    if (cost.lands.length) {
+      html += `<div style="color:var(--text-dim)">土地小計</div><div class="mono">$${fmt(cost.land)}</div>`;
+      cost.lands.forEach(l => html += `<div style="padding-left:14px;color:var(--text-dim);font-size:12px">${esc(l.deed)}</div><div class="mono" style="font-size:12px">$${fmt(l.cost)} ＋ 費用 $${fmt(l.fees)}</div>`);
+    }
+    if (cost.buildings.length) {
+      html += `<div style="color:var(--text-dim);margin-top:4px">建物小計</div><div class="mono">$${fmt(cost.building)}</div>`;
+      cost.buildings.forEach(b => html += `<div style="padding-left:14px;color:var(--text-dim);font-size:12px">${esc(b.deed)}</div><div class="mono" style="font-size:12px">$${fmt(b.cost)} ＋ 費用 $${fmt(b.fees)}</div>`);
+    }
+    html += `<div style="color:var(--text-dim);margin-top:4px">各項費用合計</div><div class="mono">$${fmt(cost.fees)}</div>`;
+    html += `<div style="font-weight:700;font-size:16px;margin-top:8px;padding-top:8px;border-top:2px solid var(--border)">總取得成本</div><div class="mono" style="font-weight:700;font-size:16px;margin-top:8px;padding-top:8px;border-top:2px solid var(--border)">$${fmt(cost.total)}</div>`;
+    html += `</div>`;
+  }
+  html += `</div>
+    
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="margin:0">📈 評估時間軸</h3>
+      <button class="btn" onclick="openAssessmentForm(${propId})">+ 新增第 ${assessments.length+1} 次評估</button>
+    </div>`;
+  if (!assessments.length) {
+    html += `<div class="note">尚無評估記錄</div>`;
+  } else {
+    assessments.forEach((a, idx) => {
+      const isLatest = idx === 0;
+      const profit = (a.suggested_price && cost.total) ? a.suggested_price - cost.total : null;
+      const pct = profit !== null ? (profit/cost.total*100).toFixed(1) : null;
+      const compCount = query("SELECT COUNT(*) c FROM assessment_comparables WHERE assessment_id=?", [a.assessment_id])[0].c;
+      html += `<div class="card" style="margin-bottom:10px;padding:14px;cursor:pointer;${isLatest?'border-left:4px solid #0891b2':''}" onclick="openAssessmentDetail(${a.assessment_id})">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <div style="font-size:16px;font-weight:600">
+              <span style="color:#0891b2">#${String(a.serial_no).padStart(3,'0')}</span>
+              ${esc(a.assessment_date||'')} 
+              ${isLatest?'<span style="color:#0891b2;font-size:11px;margin-left:6px;padding:2px 8px;background:#cffafe;border-radius:10px">最新</span>':''}
+            </div>
+            ${a.reasoning?`<div style="color:var(--text-dim);font-size:13px;margin-top:6px">💭 ${esc(a.reasoning).substring(0,80)}${a.reasoning.length>80?'...':''}</div>`:''}
+            <div style="font-size:12px;color:var(--text-dim);margin-top:6px">參考成交 ${compCount} 筆</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:13px;color:var(--text-dim)">建議售價</div>
+            <div style="font-size:20px;color:#0891b2;font-weight:700">$${fmt(a.suggested_price)}</div>
+            ${profit !== null ? `<div style="font-size:13px;color:${profit>=0?'#16a34a':'#dc2626'};font-weight:600;margin-top:2px">${profit>=0?'+':''}$${fmt(profit)} (${profit>=0?'+':''}${pct}%)</div>`:''}
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  $('#assessments').innerHTML = html;
+}
+
+/* === 第 3 層：某次評估的明細頁 === */
+function openAssessmentDetail(aid) {
+  const a = query("SELECT * FROM property_assessments WHERE assessment_id=?", [aid])[0];
+  if (!a) { toast('找不到該筆評估',true); return; }
+  const p = query("SELECT * FROM properties WHERE property_id=?", [a.property_id])[0];
+  const comps = query("SELECT * FROM assessment_comparables WHERE assessment_id=? ORDER BY transaction_date DESC, comp_id DESC", [aid]);
+  const cost = a.acquisition_cost || 0;
+  const sp = a.suggested_price || 0;
+  const profit = (cost && sp) ? sp - cost : null;
+  const pct = (profit !== null) ? (profit/cost*100).toFixed(1) : null;
+  // 持有年數
+  let yearsHeld = '—';
+  if (a.assessment_date) {
+    // 找最早的權狀取得日
+    const earliest = query(`
+      SELECT MIN(d) min_d FROM (
+        SELECT acquired_at d FROM lands WHERE land_id IN (SELECT land_id FROM deed_assignments WHERE property_id=? AND deed_type='land') AND acquired_at IS NOT NULL
+        UNION ALL
+        SELECT acquired_at d FROM buildings WHERE building_id IN (SELECT building_id FROM deed_assignments WHERE property_id=? AND deed_type='building') AND acquired_at IS NOT NULL
+      )
+    `, [a.property_id, a.property_id])[0];
+    if (earliest && earliest.min_d) {
+      const y1 = new Date(earliest.min_d).getTime();
+      const y2 = new Date(a.assessment_date).getTime();
+      if (!isNaN(y1) && !isNaN(y2)) yearsHeld = ((y2-y1)/(365.25*86400000)).toFixed(1) + ' 年';
+    }
+  }
+  let html = `<h2 class="page-title">📊 ${esc(p.name)} <span style="color:#0891b2">#${String(a.serial_no).padStart(3,'0')}</span> 評估</h2>
+    <div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn ghost" onclick="openAssessmentTimeline(${a.property_id})">← 回到評估歷史</button>
+      <button class="btn ghost" onclick="openAssessmentForm(${a.property_id},${aid})">✏ 編輯本次</button>
+      <button class="btn ghost" style="color:#dc2626" onclick="deleteAssessment(${aid})">🗑 刪除本次</button>
+    </div>
+    
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <h3 style="margin-top:0">📊 損益概覽</h3>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:14px">
+        <div style="color:var(--text-dim)">評估日期</div><div class="mono">${esc(a.assessment_date||'—')}</div>
+        <div style="color:var(--text-dim)">取得成本${a.acquisition_cost_overridden?'<span style="font-size:11px;color:#ea580c;margin-left:6px">(手動覆寫)</span>':'<span style="font-size:11px;color:var(--text-dim);margin-left:6px">(權狀帶入)</span>'}</div>
+        <div class="mono">$${fmt(cost)}</div>
+        <div style="color:var(--text-dim)">建議售價</div><div class="mono"><b style="color:#0891b2;font-size:18px">$${fmt(sp)}</b></div>
+        ${profit !== null ? `
+          <div style="color:var(--text-dim);font-weight:600;border-top:1px solid var(--border);padding-top:8px">估計毛利</div>
+          <div class="mono" style="border-top:1px solid var(--border);padding-top:8px;color:${profit>=0?'#16a34a':'#dc2626'};font-weight:700;font-size:18px">${profit>=0?'+':''}$${fmt(profit)} (${profit>=0?'+':''}${pct}%)</div>`:''}
+        <div style="color:var(--text-dim)">持有年數</div><div>${yearsHeld}</div>
+        ${a.market_status?`<div style="color:var(--text-dim)">當時市場</div><div>${esc(a.market_status)}</div>`:''}
+      </div>
+    </div>
+    
+    ${a.reasoning?`<div class="card" style="padding:14px;margin-bottom:14px">
+      <h3 style="margin-top:0">💭 評估理由</h3>
+      <div style="white-space:pre-wrap;line-height:1.6;color:var(--text)">${esc(a.reasoning)}</div>
+    </div>`:''}
+    
+    <div class="card" style="padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h3 style="margin:0">📋 鄰近成交參考 (${comps.length} 筆)</h3>
+        <button class="btn" onclick="openComparableForm(${aid})">+ 加成交參考</button>
+      </div>`;
+  if (!comps.length) {
+    html += `<div style="padding:20px;text-align:center;color:var(--text-dim)">尚無參考成交。點上方按鈕加入,可從樂屋網/591/實價登錄查資料貼上。</div>`;
+  } else {
+    html += `<div style="overflow-x:auto"><table style="font-size:12.5px"><thead><tr><th>成交日</th><th>地址</th><th>型態</th><th>樓層</th><th>屋齡</th><th>格局</th><th>車位</th><th class="right">總坪</th><th class="right">總價</th><th class="right">每坪</th><th class="right">車位價</th><th>來源</th><th>照片</th><th>備註</th><th></th></tr></thead><tbody>`;
+    comps.forEach(c => {
+      const thumb = c.photo ? `<img src="data:image/jpeg;base64,${c.photo}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="event.stopPropagation();showCompPhoto(${c.comp_id})">` : '—';
+      html += `<tr>
+        <td class="mono">${esc(c.transaction_date)||'—'}</td>
+        <td style="max-width:170px;font-size:12px">${esc(c.address)||'—'}</td>
+        <td>${esc(c.building_type)||'—'}</td>
+        <td>${esc(c.floor_info)||'—'}</td>
+        <td class="mono right">${c.age?c.age+'年':'—'}</td>
+        <td>${esc(c.rooms)||'—'}</td>
+        <td>${esc(c.parking)||'—'}</td>
+        <td class="mono right">${c.total_area_ping||'—'}</td>
+        <td class="mono right"><b>$${fmt(c.total_price)}</b></td>
+        <td class="mono right">${c.price_per_ping?'$'+fmt(c.price_per_ping):'—'}</td>
+        <td class="mono right">${c.parking_price?'$'+fmt(c.parking_price):'—'}</td>
+        <td>${enumLabel('valuation_source',c.source)||'—'}${c.source_url?` <a href="${esc(c.source_url)}" target="_blank" style="font-size:11px">🔗</a>`:''}</td>
+        <td>${thumb}</td>
+        <td style="font-size:11px;color:var(--text-dim);max-width:120px">${esc(c.notes)||''}</td>
+        <td><div class="row-actions"><button class="icon-btn" onclick="openComparableForm(${aid},${c.comp_id})">編輯</button><button class="icon-btn del" onclick="deleteComparable(${c.comp_id},${aid})">刪除</button></div></td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+  html += `</div>`;
+  $('#assessments').innerHTML = html;
+}
+
+/* === 評估表單(新增/編輯) === */
+function openAssessmentForm(propId, aid) {
+  const a = aid ? query("SELECT * FROM property_assessments WHERE assessment_id=?", [aid])[0] : {};
+  const p = query("SELECT * FROM properties WHERE property_id=?", [propId])[0];
+  const autoCost = computeAcquisitionCost(propId);
+  // 新增時:預設用自動帶的;編輯時:用儲存的值
+  const costVal = aid ? a.acquisition_cost : autoCost.total;
+  const overridden = aid ? a.acquisition_cost_overridden : 0;
+  // 取序號(編輯時用原值,新增時為現有最大+1)
+  const nextSerial = aid ? a.serial_no : ((query("SELECT MAX(serial_no) m FROM property_assessments WHERE property_id=?",[propId])[0].m || 0) + 1);
+  openModal(`
+    <div class="modal-head"><h3>${aid?'編輯':'新增'}評估 · ${esc(p.name)} <span style="color:#0891b2">#${String(nextSerial).padStart(3,'0')}</span></h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="section-label">基本</div>
+      ${fieldRocDate('assessment_date','評估日期',a.assessment_date,{hint:'今天的日期，或某次重新評估的日期'})}
+      ${fieldText('market_status','當時市場狀況',a.market_status,{full:true,ph:'例：升息中、房市熱、區域有新建設等'})}
+      
+      <div class="section-label">取得成本</div>
+      <div class="field full" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px">
+        <div style="font-size:13px;color:#0369a1;margin-bottom:8px">
+          📋 系統從權狀資料自動加總：
+          <b>$${fmt(autoCost.total)}</b>
+          ${autoCost.total>0?`<span style="font-size:12px">（土地 $${fmt(autoCost.land)} ＋ 建物 $${fmt(autoCost.building)} ＋ 各項費用 $${fmt(autoCost.fees)}）</span>`:''}
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input name="acquisition_cost" type="number" step="any" value="${esc(costVal)}" placeholder="取得成本" style="width:200px;font-weight:600">
+          <button type="button" class="btn ghost" onclick="document.querySelector('#modal [name=acquisition_cost]').value='${autoCost.total}';document.querySelector('#modal [name=acquisition_cost_overridden]').value='0'">↻ 重設為自動值</button>
+          <span style="font-size:12px;color:var(--text-dim)">可手動修改；改動後會標記為「手動覆寫」</span>
+        </div>
+        <input type="hidden" name="acquisition_cost_overridden" value="${overridden}">
+      </div>
+      
+      <div class="section-label">本次評估結論</div>
+      ${fieldText('suggested_price','建議售價（新台幣）',a.suggested_price,{type:'number',ph:'例：5500000（550萬）',hint:'你想開的價格'})}
+      <div class="field full">
+        <label>評估理由</label>
+        <textarea name="reasoning" rows="4" placeholder="例：&#10;・依鄰近成交均價 +10%（屋況保持良好）&#10;・含車位、屋齡相似&#10;・區域有新建設（捷運/學校），未來看漲&#10;・急售可降到 520 萬底價" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;background:white">${esc(a.reasoning)||''}</textarea>
+      </div>
+    </div></div>
+    <div class="modal-foot">
+      <span style="color:var(--text-dim);font-size:13px">儲存後可在評估明細頁加成交參考</span>
+      <div><button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="saveAssessment(${propId},${aid||0},${nextSerial})">儲存</button></div>
+    </div>`);
+  // 監聽取得成本欄位變動 → 標記手動覆寫
+  const autoCostNum = autoCost.total;
+  setTimeout(() => {
+    const costInput = document.querySelector('#modal [name="acquisition_cost"]');
+    if (costInput) {
+      costInput.addEventListener('input', () => {
+        const cur = parseFloat(costInput.value) || 0;
+        const flag = document.querySelector('#modal [name="acquisition_cost_overridden"]');
+        if (flag) flag.value = (Math.abs(cur - autoCostNum) > 0.01) ? '1' : '0';
+      });
+    }
+  }, 100);
+}
+function saveAssessment(propId, aid, serialNo) {
+  const f = document.querySelector('#modal');
+  const data = {
+    property_id: propId,
+    serial_no: serialNo,
+    assessment_date: readRocDate('assessment_date'),
+    acquisition_cost: parseFloat(f.querySelector('[name="acquisition_cost"]').value) || null,
+    acquisition_cost_overridden: parseInt(f.querySelector('[name="acquisition_cost_overridden"]').value) || 0,
+    suggested_price: parseFloat(f.querySelector('[name="suggested_price"]').value) || null,
+    reasoning: f.querySelector('[name="reasoning"]').value || null,
+    market_status: f.querySelector('[name="market_status"]').value || null
+  };
+  try {
+    if (aid) {
+      const sets = Object.keys(data).filter(k=>k!=='property_id'&&k!=='serial_no').map(k=>`${k}=?`).join(',');
+      const vals = Object.keys(data).filter(k=>k!=='property_id'&&k!=='serial_no').map(k=>data[k]);
+      run(`UPDATE property_assessments SET ${sets} WHERE assessment_id=?`, [...vals, aid]);
+    } else {
+      data.created_at = now();
+      const cols = Object.keys(data);
+      run(`INSERT INTO property_assessments (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
+    }
+    autoSave(); closeModal();
+    toast(aid?'已更新評估':'已新增評估');
+    setTimeout(() => openAssessmentTimeline(propId), 50);
+  } catch(e) {
+    alert('儲存失敗：' + e.message);
+  }
+}
+function deleteAssessment(aid) {
+  const cnt = query("SELECT COUNT(*) c FROM assessment_comparables WHERE assessment_id=?",[aid])[0].c;
+  if (!confirm(`確定刪除這次評估？${cnt?`\n會同時刪除底下 ${cnt} 筆成交參考。`:''}\n此動作無法復原。`)) return;
+  const a = query("SELECT property_id FROM property_assessments WHERE assessment_id=?",[aid])[0];
+  const propId = a?.property_id;
+  try {
+    run("DELETE FROM assessment_comparables WHERE assessment_id=?", [aid]);
+    run("DELETE FROM property_assessments WHERE assessment_id=?", [aid]);
+    autoSave();
+    toast('已刪除');
+    setTimeout(() => propId ? openAssessmentTimeline(propId) : renderAssessmentHome(), 50);
+  } catch(e) {
+    alert('刪除失敗：' + e.message);
+  }
+}
+
+/* === 鄰近成交參考表單 === */
+function openComparableForm(aid, cid) {
+  const c = cid ? query("SELECT * FROM assessment_comparables WHERE comp_id=?",[cid])[0] : {};
+  const a = query("SELECT a.*, p.name pname FROM property_assessments a JOIN properties p ON p.property_id=a.property_id WHERE a.assessment_id=?",[aid])[0];
+  if (!a) { alert('找不到評估場次'); return; }
+  const photoSrc = c.photo ? `data:image/jpeg;base64,${c.photo}` : '';
+  openModal(`
+    <div class="modal-head"><h3>${cid?'編輯':'新增'}成交參考 · ${esc(a.pname)} #${String(a.serial_no).padStart(3,'0')}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="field full" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px">
+        <label style="color:#1e40af">📋 貼上文字自動填入（樂屋網／實價登錄／591 複製貼上）</label>
+        <textarea id="compParseText" rows="4" placeholder="例：&#10;114/06 華廈&#10;花蓮市國富十一街32號2樓之2&#10;488 萬  25 萬/坪&#10;主建物 19.49坪  屋齡 28.7年  房廳衛 2/1/1" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;background:white"></textarea>
+        <button type="button" class="btn" style="margin-top:8px" onclick="parseComparable()">✨ 解析並填入</button>
+      </div>
+      <div class="section-label">基本</div>
+      ${fieldRocDate('transaction_date','成交日期',c.transaction_date)}
+      ${fieldSelect('source','資料來源','valuation_source',c.source)}
+      ${fieldText('address','地址',c.address,{full:true,ph:'例：花蓮市國富十一街32號2樓之2'})}
+      ${fieldText('building_type','物件型態',c.building_type,{ph:'華廈／公寓／透天'})}
+      ${fieldText('floor_info','樓層',c.floor_info,{ph:'例:2/5樓'})}
+      ${fieldText('age','屋齡（年）',c.age,{type:'number',ph:'例:28.7'})}
+      ${fieldText('rooms','格局（房/廳/衛）',c.rooms,{ph:'例:2/1/1'})}
+      ${fieldText('parking','車位個數',c.parking,{ph:'例:1個、無車位'})}
+      <div class="section-label">面積（坪）</div>
+      ${fieldText('main_area_ping','主建物',c.main_area_ping,{type:'number'})}
+      ${fieldText('aux_area_ping','附屬',c.aux_area_ping,{type:'number'})}
+      ${fieldText('common_area_ping','共用',c.common_area_ping,{type:'number'})}
+      ${fieldText('parking_area_ping','車位',c.parking_area_ping,{type:'number'})}
+      <div class="field full">
+        <label>總面積（坪）</label>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input name="total_area_ping" type="number" step="any" value="${esc(c.total_area_ping)}" style="width:160px">
+          <button type="button" class="btn ghost" onclick="fillCompTotal()">↙ 帶入加總</button>
+          <span style="color:var(--text-dim);font-size:13px">加總：<span id="compAreaSum" style="color:var(--accent);font-weight:600">0</span> 坪</span>
+        </div>
+      </div>
+      <div class="section-label">價格</div>
+      ${fieldText('total_price','總價',c.total_price,{type:'number',ph:'例：4880000'})}
+      ${fieldText('price_per_ping','每坪',c.price_per_ping,{type:'number',ph:'例：250000'})}
+      ${fieldText('parking_price','車位價',c.parking_price,{type:'number',ph:'例：800000'})}
+      ${fieldText('source_url','來源連結',c.source_url,{full:true})}
+      <div class="section-label">附加</div>
+      ${fieldText('notes','備註',c.notes,{full:true})}
+      <div class="field full">
+        <label>照片（自動壓縮）</label>
+        <input type="file" accept="image/*" onchange="handleCompPhoto(event)" style="padding:8px">
+        <div id="compPhotoPreview" style="margin-top:8px">
+          ${photoSrc?`<img src="${photoSrc}" style="max-width:300px;max-height:300px;border-radius:6px;border:1px solid var(--border)"><br><button type="button" class="btn ghost" style="margin-top:6px" onclick="clearCompPhoto()">移除</button>`:''}
+        </div>
+        <input type="hidden" id="compPhotoData" value="${c.photo||''}">
+      </div>
+    </div></div>
+    <div class="modal-foot"><span></span>
+      <div><button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="saveComparable(${aid},${cid||0})">儲存</button></div>
+    </div>`);
+  ['main_area_ping','aux_area_ping','common_area_ping','parking_area_ping'].forEach(n => {
+    const el = document.querySelector(`#modal [name="${n}"]`);
+    if (el) el.addEventListener('input', updateCompAreaSum);
+  });
+  updateCompAreaSum();
+}
+function updateCompAreaSum() {
+  const f = document.querySelector('#modal'); if (!f) return;
+  const g = n => parseFloat((f.querySelector(`[name="${n}"]`)||{}).value) || 0;
+  const sum = g('main_area_ping')+g('aux_area_ping')+g('common_area_ping')+g('parking_area_ping');
+  const el = document.getElementById('compAreaSum');
+  if (el) el.textContent = sum ? sum.toFixed(2).replace(/\.?0+$/,'') : '0';
+}
+function fillCompTotal() {
+  const f = document.querySelector('#modal'); if (!f) return;
+  const g = n => parseFloat((f.querySelector(`[name="${n}"]`)||{}).value) || 0;
+  const sum = g('main_area_ping')+g('aux_area_ping')+g('common_area_ping')+g('parking_area_ping');
+  const inp = f.querySelector('[name="total_area_ping"]');
+  if (inp) inp.value = sum ? parseFloat(sum.toFixed(2)) : '';
+}
+function handleCompPhoto(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 1200/img.width);
+      canvas.width = img.width*scale; canvas.height = img.height*scale;
+      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg',0.7);
+      document.getElementById('compPhotoData').value = dataUrl.split(',')[1];
+      document.getElementById('compPhotoPreview').innerHTML =
+        `<img src="${dataUrl}" style="max-width:300px;max-height:300px;border-radius:6px;border:1px solid var(--border)"><br><button type="button" class="btn ghost" style="margin-top:6px" onclick="clearCompPhoto()">移除</button>`;
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function clearCompPhoto() {
+  document.getElementById('compPhotoData').value = '';
+  document.getElementById('compPhotoPreview').innerHTML = '';
+}
+function showCompPhoto(cid) {
+  const c = query("SELECT photo FROM assessment_comparables WHERE comp_id=?",[cid])[0];
+  if (!c || !c.photo) return;
+  openModal(`<div class="modal-head"><h3>照片預覽</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="text-align:center;padding:10px"><img src="data:image/jpeg;base64,${c.photo}" style="max-width:100%;max-height:80vh;border-radius:6px"></div>`);
+}
+function parseComparable() {
+  // 重用之前的解析邏輯，target 改成 comparable 表單的欄位名
+  const txt = (document.getElementById('compParseText').value||'').trim();
+  if (!txt) { toast('請先貼入文字',true); return; }
+  const f = document.querySelector('#modal');
+  const set = (n,v) => { if(v==null||v==='')return; const el=f.querySelector(`[name="${n}"]`); if(el){el.value=v; return true;} };
+  const filled = [];
+  const lines = txt.split(/[\n\r]+/).map(s=>s.trim()).filter(x=>x);
+
+  // 日期
+  let m = txt.match(/民國\s*(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (!m) m = txt.match(/(?<![\d巷弄號之])(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+  if (!m) {
+    const dl = lines.find(l => /^(?:成交年月\s*)?\d{2,3}\s*[-\/]\s*\d{1,2}(?:\s|$|\s+(?:華廈|公寓|大樓|透天|別墅|套房))/.test(l));
+    if (dl) { const dm = dl.match(/(\d{2,3})\s*[-\/]\s*(\d{1,2})/); if (dm) m=[dm[0],dm[1],dm[2],'1']; }
+  }
+  if (m) {
+    let y = parseInt(m[1]); if (y<1911) y+=1911;
+    const yEl=f.querySelector('[data-roc="transaction_date"][data-part="y"]');
+    const moEl=f.querySelector('[data-roc="transaction_date"][data-part="m"]');
+    const dEl=f.querySelector('[data-roc="transaction_date"][data-part="d"]');
+    if (yEl&&moEl&&dEl) {
+      yEl.value=y-1911; moEl.value=parseInt(m[2]); dEl.value=parseInt(m[3])||1;
+      if (typeof updateRocWest==='function') updateRocWest('transaction_date');
+      filled.push(`日期 ${y-1911}/${m[2]}`);
+    }
+  }
+  // 總價
+  const wm = [...txt.matchAll(/(\d{1,5}(?:,\d{3})*(?:\.\d+)?)\s*萬(?!\s*\/)/g)];
+  if (wm.length) {
+    const max = Math.max(...wm.map(x=>parseFloat(x[1].replace(/,/g,''))));
+    if (max>0) { set('total_price',Math.round(max*10000)); filled.push(`總價 ${max}萬`); }
+  }
+  // 每坪
+  m = txt.match(/(\d+(?:\.\d+)?)\s*萬\s*\/\s*坪/);
+  if (m) { set('price_per_ping',Math.round(parseFloat(m[1])*10000)); filled.push(`每坪 ${m[1]}萬`); }
+  // 主建物/附屬/共用/車位面積/車位價
+  m = txt.match(/(?:主建物|主建|總建坪|建坪)\s*[:：]?\s*(\d+(?:\.\d+)?)/);
+  if (m) { set('main_area_ping',parseFloat(m[1])); filled.push(`主建物 ${m[1]}`); }
+  m = txt.match(/附屬\s*[:：]?\s*(\d+(?:\.\d+)?)/);
+  if (m) { set('aux_area_ping',parseFloat(m[1])); filled.push(`附屬 ${m[1]}`); }
+  m = txt.match(/(?:共用|公設)\s*[:：]?\s*(\d+(?:\.\d+)?)/);
+  if (m) { set('common_area_ping',parseFloat(m[1])); filled.push(`共用 ${m[1]}`); }
+  m = txt.match(/車位\s*[:：]?\s*(\d+(?:\.\d+)?)\s*坪/);
+  if (m) { set('parking_area_ping',parseFloat(m[1])); filled.push(`車位面積 ${m[1]}`); }
+  m = txt.match(/車位(?:價格|總價)?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*萬/);
+  if (m && parseFloat(m[1])>0) { set('parking_price',Math.round(parseFloat(m[1])*10000)); filled.push(`車位價 ${m[1]}萬`); }
+  m = txt.match(/總面積\s*[:：]?\s*(\d+(?:\.\d+)?)/);
+  if (m) { set('total_area_ping',parseFloat(m[1])); filled.push(`總面積 ${m[1]}`); }
+  // 樓層
+  m = txt.match(/(\d+)\s*[\/／]\s*(\d+)\s*樓/);
+  if (m) { set('floor_info',`${m[1]}/${m[2]}樓`); filled.push(`樓層 ${m[1]}/${m[2]}樓`); }
+  else { const fl = lines.find(l=>/^(?:樓層\s*)?\d+\s*樓(?:之\d+)?$/.test(l)); if (fl){ const fm=fl.match(/(\d+\s*樓(?:之\d+)?)/); if (fm) { set('floor_info',fm[1]); filled.push(`樓層 ${fm[1]}`); }} }
+  // 屋齡
+  m = txt.match(/屋齡\s*[:：]?\s*(\d+(?:\.\d+)?)/);
+  if (m) { set('age',parseFloat(m[1])); filled.push(`屋齡 ${m[1]}年`); }
+  // 格局
+  m = txt.match(/(\d)\s*[\/／]\s*(\d|--|—)\s*[\/／]\s*(\d|--|—)/);
+  if (m) {
+    const r=m[1], l=(m[2]==='--'||m[2]==='—')?'--':m[2], b=(m[3]==='--'||m[3]==='—')?'--':m[3];
+    set('rooms',`${r}/${l}/${b}`); filled.push(`格局 ${r}/${l}/${b}`);
+  } else {
+    m = txt.match(/(\d)\s*房\s*(\d)\s*廳\s*(\d)\s*衛/);
+    if (m) { set('rooms',`${m[1]}/${m[2]}/${m[3]}`); filled.push(`格局`); }
+    else { m = txt.match(/(\d)\s*房(?!\s*[\/／]\s*\d+\s*[廳衛坪])/); if (m){ set('rooms',`${m[1]}/--/--`); filled.push(`${m[1]}房`); } }
+  }
+  // 車位
+  if (/無車位/.test(txt)) { set('parking','無車位'); filled.push('無車位'); }
+  else { const pm = txt.match(/(\d+)\s*個?\s*車位/); if (pm){ set('parking',`${pm[1]}個車位`); filled.push(`${pm[1]}車位`); } }
+  // 型態
+  m = txt.match(/(華廈|電梯大樓|電梯華廈|公寓|透天厝|透天|大樓|別墅|套房|店面|辦公|廠房|農舍)/);
+  if (m) { set('building_type',m[1]); filled.push(`型態 ${m[1]}`); }
+  // 地址
+  const addr = lines.find(l => l.length>=4 && l.length<=80 && /[路街巷弄段號]/.test(l) && !/坪|萬|車位|樓層|屋齡|單價|總價|成交/.test(l));
+  if (addr) { set('address',addr.replace(/\s*\|\s*/g,' ').replace(/操作$/,'').trim()); filled.push('地址'); }
+  updateCompAreaSum();
+  if (filled.length) toast(`已解析填入：${filled.join('、')}`);
+  else toast('沒有解析到任何欄位',true);
+}
+function saveComparable(aid, cid) {
+  const f = document.querySelector('#modal');
+  const photoVal = document.getElementById('compPhotoData').value || null;
+  const data = {
+    assessment_id: aid,
+    transaction_date: readRocDate('transaction_date'),
+    address: (f.querySelector('[name="address"]')||{}).value || null,
+    building_type: (f.querySelector('[name="building_type"]')||{}).value || null,
+    floor_info: (f.querySelector('[name="floor_info"]')||{}).value || null,
+    age: parseFloat((f.querySelector('[name="age"]')||{}).value) || null,
+    rooms: (f.querySelector('[name="rooms"]')||{}).value || null,
+    parking: (f.querySelector('[name="parking"]')||{}).value || null,
+    main_area_ping: parseFloat((f.querySelector('[name="main_area_ping"]')||{}).value) || null,
+    aux_area_ping: parseFloat((f.querySelector('[name="aux_area_ping"]')||{}).value) || null,
+    common_area_ping: parseFloat((f.querySelector('[name="common_area_ping"]')||{}).value) || null,
+    parking_area_ping: parseFloat((f.querySelector('[name="parking_area_ping"]')||{}).value) || null,
+    total_area_ping: parseFloat((f.querySelector('[name="total_area_ping"]')||{}).value) || null,
+    total_price: parseFloat((f.querySelector('[name="total_price"]')||{}).value) || null,
+    price_per_ping: parseFloat((f.querySelector('[name="price_per_ping"]')||{}).value) || null,
+    parking_price: parseFloat((f.querySelector('[name="parking_price"]')||{}).value) || null,
+    source: (f.querySelector('[name="source"]')||{}).value || null,
+    source_url: (f.querySelector('[name="source_url"]')||{}).value || null,
+    notes: (f.querySelector('[name="notes"]')||{}).value || null,
+    photo: photoVal
+  };
+  try {
+    if (cid) {
+      const sets = Object.keys(data).filter(k=>k!=='assessment_id').map(k=>`${k}=?`).join(',');
+      const vals = Object.keys(data).filter(k=>k!=='assessment_id').map(k=>data[k]);
+      run(`UPDATE assessment_comparables SET ${sets} WHERE comp_id=?`,[...vals,cid]);
+    } else {
+      data.created_at = now();
+      const cols = Object.keys(data);
+      run(`INSERT INTO assessment_comparables (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
+    }
+    autoSave(); closeModal();
+    toast(cid?'已更新':'已新增成交參考');
+    setTimeout(()=>openAssessmentDetail(aid),50);
+  } catch(e) {
+    alert('儲存失敗：'+e.message);
+  }
+}
+function deleteComparable(cid, aid) {
+  if (!confirm('確定刪除這筆成交參考？')) return;
+  try {
+    run("DELETE FROM assessment_comparables WHERE comp_id=?",[cid]);
+    autoSave(); toast('已刪除');
+    setTimeout(()=>openAssessmentDetail(aid),50);
+  } catch(e) { alert('刪除失敗：'+e.message); }
+}
