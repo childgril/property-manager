@@ -400,20 +400,48 @@ function parseAndFillValuation() {
     return true;
   };
   const filled = [];
+  const lines = txt.split(/[\n\r]+/).map(s=>s.trim()).filter(x=>x);
 
-  // 1) 總價：「488 萬」「488萬」「4,880,000」「8000 萬」
-  let m = txt.match(/(\d{1,5}(?:,\d{3})*)\s*萬(?!\s*\/)/);
+  // === 1) 評估日期：嚴格抓「年月」格式，避免地址裡的「148巷2弄」誤判 ===
+  let m = txt.match(/民國\s*(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (!m) m = txt.match(/(?<![\d巷弄號之])(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+  if (!m) {
+    // 105-06 或 114/06：單獨一行，或行開頭後接型態（樂屋網格式）
+    const dateLine = lines.find(l => /^(?:成交年月\s*)?\d{2,3}\s*[-\/]\s*\d{1,2}(?:\s|$|\s+(?:華廈|公寓|大樓|透天|別墅|套房|店面))/.test(l));
+    if (dateLine) {
+      const dm = dateLine.match(/(\d{2,3})\s*[-\/]\s*(\d{1,2})/);
+      if (dm) m = [dm[0], dm[1], dm[2], '1'];
+    }
+  }
+  if (!m) {
+    m = txt.match(/(20\d{2})\s*[\/-]\s*(\d{1,2})\s*[\/-]\s*(\d{1,2})/);
+    if (m) m = [m[0], String(parseInt(m[1])-1911), m[2], m[3]];
+  }
   if (m) {
-    const wan = parseFloat(m[1].replace(/,/g,''));
-    set('market_value', Math.round(wan * 10000));
-    filled.push(`總價 ${wan}萬`);
-  } else {
-    // 沒「萬」字 → 找大金額（>=100萬的純數字，避免抓到坪數年份）
-    m = txt.match(/(?:總價|成交價)[^\d]{0,5}([\d,]{7,12})/);
-    if (m) { set('market_value', parseFloat(m[1].replace(/,/g,''))); filled.push('總價'); }
+    let y = parseInt(m[1]); if (y < 1911) y += 1911;
+    const mo = parseInt(m[2]), d = parseInt(m[3]) || 1;
+    const yEl = f.querySelector('[data-roc="valuation_date"][data-part="y"]');
+    const moEl = f.querySelector('[data-roc="valuation_date"][data-part="m"]');
+    const dEl = f.querySelector('[data-roc="valuation_date"][data-part="d"]');
+    if (yEl && moEl && dEl) {
+      yEl.value = y - 1911; moEl.value = mo; dEl.value = d;
+      if (typeof updateRocWest === 'function') updateRocWest('valuation_date');
+      filled.push(`日期 ${y-1911}/${mo}`);
+    }
   }
 
-  // 2) 每坪：「25 萬/坪」「25.5萬/坪」「24.5 萬/坪」「250,000 元/坪」
+  // === 2) 總價：所有「N 萬」中取最大（避免抓到車位 0 萬） ===
+  const wanMatches = [...txt.matchAll(/(\d{1,5}(?:,\d{3})*(?:\.\d+)?)\s*萬(?!\s*\/)/g)];
+  if (wanMatches.length) {
+    const values = wanMatches.map(x => parseFloat(x[1].replace(/,/g,'')));
+    const max = Math.max(...values);
+    if (max > 0) {
+      set('market_value', Math.round(max * 10000));
+      filled.push(`總價 ${max}萬`);
+    }
+  }
+
+  // === 3) 每坪單價 ===
   m = txt.match(/(\d+(?:\.\d+)?)\s*萬\s*\/\s*坪/);
   if (m) {
     const wan = parseFloat(m[1]);
@@ -424,74 +452,84 @@ function parseAndFillValuation() {
     if (m) { set('price_per_ping', parseFloat(m[1].replace(/,/g,''))); filled.push('每坪'); }
   }
 
-  // 3) 總建坪：「總建坪 19.49坪」「建坪 19.49」「19.49坪」（取「坪」前最近的數字，排除地坪）
-  m = txt.match(/(?:總建坪|建坪)\s*(\d+(?:\.\d+)?)/);
+  // === 4) 總建坪 ===
+  m = txt.match(/(?:總建坪|建坪|主建物)\s*[:：]?\s*(\d+(?:\.\d+)?)/);
+  if (!m) m = txt.match(/\d+\s*房\s*\/\s*(\d+(?:\.\d+)?)\s*坪/);
   if (!m) m = txt.match(/(?<!地)(\d+(?:\.\d+)?)\s*坪(?!\s*\/)/);
   if (m) { set('ref_total_ping', parseFloat(m[1])); filled.push(`建坪 ${m[1]}`); }
 
-  // 4) 地坪：「地坪 5坪」「地坪 4.72」
-  m = txt.match(/地坪\s*(\d+(?:\.\d+)?)/);
+  // === 5) 地坪 ===
+  m = txt.match(/地坪\s*[:：]?\s*(\d+(?:\.\d+)?)/);
   if (m) { set('ref_land_ping', parseFloat(m[1])); filled.push(`地坪 ${m[1]}`); }
 
-  // 5) 樓層：「2/5樓」「樓層 2/5樓」「4樓/5樓」
+  // === 6) 樓層：先抓 X/Y 樓，再退回單獨 N 樓 ===
   m = txt.match(/(\d+)\s*[\/／]\s*(\d+)\s*樓/);
+  if (!m) m = txt.match(/(\d+)樓\s*[\/／]\s*(\d+)樓/);
   if (m) { set('ref_floor', `${m[1]}/${m[2]}樓`); filled.push(`樓層 ${m[1]}/${m[2]}樓`); }
-
-  // 6) 屋齡：「屋齡 28.7年」「28.9 年」（取「年」前數字）
-  m = txt.match(/屋齡\s*(\d+(?:\.\d+)?)/);
-  if (!m) m = txt.match(/(\d+(?:\.\d+)?)\s*年(?!\s*\d)/);
-  if (m) { set('ref_age', parseFloat(m[1])); filled.push(`屋齡 ${m[1]}年`); }
-
-  // 7) 房廳衛：「2/1/1」「房(室)廳衛 2/1/1」「2房1廳1衛」
-  m = txt.match(/(\d)\s*[\/／]\s*(\d|--|—)\s*[\/／]\s*(\d|--|—)/);
-  if (m) {
-    const r = m[1], l = (m[2]==='--'||m[2]==='—')?'':m[2], b = (m[3]==='--'||m[3]==='—')?'':m[3];
-    set('ref_rooms', `${r}/${l||'--'}/${b||'--'}`);
-    filled.push(`房廳衛 ${r}/${l||'--'}/${b||'--'}`);
-  } else {
-    m = txt.match(/(\d)\s*房\s*(\d)\s*廳\s*(\d)\s*衛/);
-    if (m) { set('ref_rooms', `${m[1]}/${m[2]}/${m[3]}`); filled.push(`房廳衛 ${m[1]}/${m[2]}/${m[3]}`); }
-  }
-
-  // 8) 車位
-  if (/無車位/.test(txt)) { set('ref_parking', '無車位'); filled.push('無車位'); }
-  else { m = txt.match(/(\d+)\s*個?\s*車位/); if (m) { set('ref_parking', `${m[1]}個車位`); filled.push(`${m[1]}個車位`); } }
-
-  // 9) 型態：華廈/公寓/透天/大樓/別墅/套房等
-  m = txt.match(/(華廈|公寓|電梯大樓|大樓|透天厝?|別墅|套房|店面|辦公|廠房|農舍)/);
-  if (m) { set('ref_building_type', m[1]); filled.push(`型態 ${m[1]}`); }
-
-  // 10) 地址：包含「市」「區」「路」「街」其中之一，跳過已知關鍵字
-  const addrM = txt.split(/[\n\r]+/).find(line => /[市區].*[路街巷弄號]/.test(line) && line.length < 60 && !/坪|樓|年|萬/.test(line));
-  if (addrM) { set('ref_address', addrM.trim()); filled.push('地址'); }
-
-  // 11) 評估日期：「114/06」「114年6月」「2025/06/01」「民國114年6月1日」
-  m = txt.match(/民國\s*(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (!m) m = txt.match(/(\d{2,3})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})/);
-  if (!m) m = txt.match(/(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})/);
-  if (!m) {
-    // 只有年月（114/06）→ 補日=1
-    const mm = txt.match(/(?:^|[^\d])(\d{2,3})\s*[\/-年]\s*(\d{1,2})(?![\/\d])/);
-    if (mm) m = [mm[0], mm[1], mm[2], '1'];
-  }
-  if (m) {
-    let y = parseInt(m[1]); if (y < 1911) y += 1911;
-    const mo = parseInt(m[2]), d = parseInt(m[3]);
-    // 寫回民國年三格輸入
-    const yEl = f.querySelector('[data-roc="valuation_date"][data-part="y"]');
-    const moEl = f.querySelector('[data-roc="valuation_date"][data-part="m"]');
-    const dEl = f.querySelector('[data-roc="valuation_date"][data-part="d"]');
-    if (yEl && moEl && dEl) {
-      yEl.value = y - 1911; moEl.value = mo; dEl.value = d;
-      if (typeof updateRocWest === 'function') updateRocWest('valuation_date');
-      filled.push(`日期 ${y}/${mo}/${d}`);
+  else {
+    const flLine = lines.find(l => /^(?:樓層\s*)?\d+\s*樓(?:之\d+)?$/.test(l));
+    if (flLine) {
+      const fm = flLine.match(/(\d+\s*樓(?:之\d+)?)/);
+      if (fm) { set('ref_floor', fm[1]); filled.push(`樓層 ${fm[1]}`); }
     }
   }
 
-  // 結果回饋
-  if (filled.length) toast(`已解析填入：${filled.join('、')}`);
-  else toast('沒有解析到任何欄位，請檢查文字格式或手動填寫', true);
+  // === 7) 屋齡 ===
+  m = txt.match(/屋齡\s*[:：]?\s*(\d+(?:\.\d+)?)/);
+  if (!m) m = txt.match(/(\d+(?:\.\d+)?)\s*年\s*屋齡/);
+  if (m) { set('ref_age', parseFloat(m[1])); filled.push(`屋齡 ${m[1]}年`); }
+
+  // === 8) 房廳衛：支援 N/N/N、N房N廳N衛、N房（單獨） ===
+  m = txt.match(/(\d)\s*[\/／]\s*(\d|--|—)\s*[\/／]\s*(\d|--|—)/);
+  if (m) {
+    const r = m[1], l = (m[2]==='--'||m[2]==='—')?'--':m[2], b = (m[3]==='--'||m[3]==='—')?'--':m[3];
+    set('ref_rooms', `${r}/${l}/${b}`);
+    filled.push(`房廳衛 ${r}/${l}/${b}`);
+  } else {
+    m = txt.match(/(\d)\s*房\s*(\d)\s*廳\s*(\d)\s*衛/);
+    if (m) { set('ref_rooms', `${m[1]}/${m[2]}/${m[3]}`); filled.push(`房廳衛 ${m[1]}/${m[2]}/${m[3]}`); }
+    else {
+      m = txt.match(/(\d)\s*房(?!\s*[\/／]\s*\d+\s*[廳衛])/);
+      if (m) { set('ref_rooms', `${m[1]}/--/--`); filled.push(`${m[1]}房`); }
+    }
+  }
+
+  // === 9) 車位 ===
+  if (/無車位/.test(txt)) { set('ref_parking', '無車位'); filled.push('無車位'); }
+  else { m = txt.match(/(\d+)\s*個?\s*車位/); if (m) { set('ref_parking', `${m[1]}個車位`); filled.push(`${m[1]}個車位`); } }
+
+  // === 10) 物件型態 ===
+  m = txt.match(/(華廈|電梯大樓|電梯華廈|公寓|透天厝|透天|大樓|別墅|套房|店面|辦公|廠房|農舍|住宅|住家)/);
+  if (m) { set('ref_building_type', m[1]); filled.push(`型態 ${m[1]}`); }
+
+  // === 11) 地址：包含 路/街/巷/弄/段/號 且不含坪萬樓等關鍵字 ===
+  let addr = lines.find(line =>
+    line.length >= 4 && line.length <= 80 &&
+    /[路街巷弄段號]/.test(line) &&
+    !/坪|萬|車位|樓層|屋齡|單價|總價|成交/.test(line)
+  );
+  if (addr) {
+    addr = addr.replace(/\s*\|\s*/g,' ').replace(/操作$/,'').trim();
+    set('ref_address', addr);
+    filled.push('地址');
+  }
+
+  // === 12) 車位總價塞到附註 ===
+  m = txt.match(/車位總價[^\d]{0,5}(\d+(?:\.\d+)?)\s*(萬|元)?/);
+  if (m && parseFloat(m[1]) > 0) {
+    const val = parseFloat(m[1]);
+    const isWan = m[2] === '萬';
+    const notesEl = f.querySelector('[name="notes"]');
+    if (notesEl && !notesEl.value) {
+      notesEl.value = `車位總價 ${isWan?val+'萬':val+'元'}`;
+      filled.push('附註(車位總價)');
+    }
+  }
+
+  if (filled.length) toast(`已解析填入:${filled.join('、')}`);
+  else toast('沒有解析到任何欄位,請檢查文字格式或手動填寫', true);
 }
+
 function saveValuation(propId, vid) {
   const f = document.querySelector('#modal');
   const photoEl = document.getElementById('valuationPhotoData');
