@@ -415,6 +415,7 @@ function exportAll() {
   });
   exportMultiSheetXLS(sheets, '不動產總表');
 }
+function markDirty() { dirty = true; const el = $('#dataStatus'); if (el) { el.textContent = '⚠ 有未儲存變更，記得「儲存到檔案」'; el.style.color = 'var(--amber)'; } }
 function markClean() { dirty = false; $('#dataStatus').textContent = '已儲存 / 無變更'; $('#dataStatus').style.color = 'var(--text-dim)'; }
 
 function toast(msg, isErr) {
@@ -626,7 +627,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.04-c</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.04-d</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>
