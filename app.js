@@ -80,6 +80,17 @@ CREATE TABLE IF NOT EXISTS building_lands (
   land_id INTEGER,
   created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS property_valuations (
+  valuation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id INTEGER,
+  valuation_date TEXT,
+  market_value REAL,
+  price_per_ping REAL,
+  source TEXT,
+  source_url TEXT,
+  notes TEXT,
+  created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS deed_events (
   event_id INTEGER PRIMARY KEY AUTOINCREMENT,
   deed_type TEXT, deed_id INTEGER,
@@ -172,6 +183,7 @@ const ENUMS = {
   land_category: [['建','建（建築用地）'],['田','田（水田）'],['旱','旱（旱田）'],['林','林（林地）'],['養','養（養殖用地）'],['牧','牧（畜牧用地）'],['礦','礦（礦業用地）'],['鹽','鹽（鹽田）'],['池','池（池塘）'],['線','線（鐵路用地）'],['道','道（道路）'],['水','水（水利用地）'],['溜','溜（蓄水池）'],['溝','溝（溝渠）'],['堤','堤（堤防）'],['原','原（生產原野）'],['雜','雜（雜地）'],['公','公（公共用地）'],['墓','墓（墳墓）'],['祠','祠（祠廟）'],['鐵','鐵（鐵道用地）'],['其他','其他']],
   land_acq: [['purchase','買賣'],['inheritance','繼承'],['gift','贈與'],['split','分割產生'],['merge','合併產生']],
   land_disposal: [['sale','出售'],['gift','贈與'],['split','分割消滅'],['merge','合併消滅'],['expropriation','徵收']],
+  valuation_source: [['actual_price','實價登錄'],['591','591 房屋網'],['leju','樂屋網'],['sinyi','信義房屋'],['yungching','永慶房屋'],['broker','仲介估價'],['bank','銀行估價'],['self','自行評估'],['offer','他人出價'],['other','其他']],
   land_status: [['held','持有中'],['sold','已售出'],['split','已分割'],['merged','已合併']],
   building_type: [['apartment','公寓'],['elevator_building','電梯大樓'],['townhouse','透天厝'],['suite','套房'],['store','店面'],['office','辦公'],['factory','廠房'],['other','其他']],
   building_acq: [['purchase','買賣'],['self_build','自地自建'],['inheritance','繼承'],['gift','贈與']],
@@ -281,16 +293,14 @@ function parseCSV(text) {
 }
 
 /* 民國年日期字串轉西元 ISO（"民國108年3月15日" / "108/3/15" / "108-3-15" 都可） */
-function rocToWest(s) {
+function rocStrToWest(s) {
   if (!s) return null;
   s = String(s).trim();
-  // 已是西元（含 -）就原樣
   if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) return s;
-  // 從字串抓三個數字當 年月日
   const m = s.match(/(\d{1,3})\D+(\d{1,2})\D+(\d{1,2})/);
   if (!m) return null;
   let y = parseInt(m[1]); const mo = parseInt(m[2]); const d = parseInt(m[3]);
-  if (y < 1911) y += 1911;  // 視為民國年
+  if (y < 1911) y += 1911;
   return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 
@@ -513,7 +523,7 @@ function bindUI() {
   });
 }
 
-const CRUMB = { dashboard:'總覽', lands:'土地權狀', buildings:'建物權狀', deedDetail:'權狀明細', properties:'不動產物件', propDetail:'物件明細', transactions:'買賣交易', txnDetail:'交易明細', loans:'銀行借貸', loanDetail:'貸款明細' };
+const CRUMB = { dashboard:'總覽', lands:'土地權狀', buildings:'建物權狀', deedDetail:'權狀明細', properties:'不動產物件', propDetail:'物件明細', valuations:'物件價值', transactions:'買賣交易', txnDetail:'交易明細', loans:'銀行借貸', loanDetail:'貸款明細' };
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === id));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === id));
@@ -522,6 +532,7 @@ function showPage(id) {
   if (id === 'lands') renderLandList();
   if (id === 'buildings') renderBuildingList();
   if (id === 'properties') renderPropertyList();
+  if (id === 'valuations') renderValuationList();
   if (id === 'transactions') renderTxnList();
   if (id === 'loans') renderLoanList();
   window.scrollTo(0,0);
@@ -584,7 +595,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.28-c</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.28-d</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>
@@ -794,7 +805,7 @@ function importLands() {
         total_area_sqm: parseFloat(get('面積㎡'))||parseFloat(get('面積'))||null,
         share_numerator: null, share_denominator: null,
         owner_name: get('所有權人'),
-        acquired_at: rocToWest(get('登記日期')),
+        acquired_at: rocStrToWest(get('登記日期')),
         acquisition_type: labelToCode('land_acq', get('取得方式')),
         acquisition_cost: parseFloat(get('取得成本'))||null,
         fee_land_increment_tax: parseFloat(get('土地增值稅'))||null,
@@ -805,7 +816,7 @@ function importLands() {
         fee_registration: parseFloat(get('登記規費'))||null,
         fee_other: parseFloat(get('其他費用'))||null,
         lifecycle_status: labelToCode('land_status', get('狀態')) || 'held',
-        disposed_at: rocToWest(get('處分日')),
+        disposed_at: rocStrToWest(get('處分日')),
         disposal_type: labelToCode('land_disposal', get('處分方式')),
         notes: get('備註'),
         created_at: now(), updated_at: now()
@@ -942,7 +953,7 @@ function importBuildings() {
         total_registered_area_sqm: parseFloat(get('權狀總登記㎡'))||null,
         share_numerator: null, share_denominator: null,
         owner_name: get('所有權人'),
-        acquired_at: rocToWest(get('登記日期')),
+        acquired_at: rocStrToWest(get('登記日期')),
         acquisition_type: labelToCode('building_acq', get('取得方式')),
         acquisition_cost: parseFloat(get('取得成本'))||null,
         fee_deed_tax: parseFloat(get('契稅'))||null,
@@ -953,7 +964,7 @@ function importBuildings() {
         fee_registration: parseFloat(get('登記規費'))||null,
         fee_other: parseFloat(get('其他費用'))||null,
         lifecycle_status: labelToCode('building_status', get('狀態')) || 'held',
-        disposed_at: rocToWest(get('處分日')),
+        disposed_at: rocStrToWest(get('處分日')),
         disposal_type: labelToCode('building_disposal', get('處分方式')),
         notes: get('備註'),
         created_at: now(), updated_at: now()

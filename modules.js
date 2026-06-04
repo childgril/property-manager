@@ -130,6 +130,7 @@ function openPropDetail(id) {
   const assigns = query("SELECT * FROM deed_assignments WHERE property_id=? AND is_current=1", [id]);
   const txns = query("SELECT * FROM transactions WHERE property_id=? ORDER BY transaction_id DESC", [id]);
   const loans = query("SELECT * FROM loans WHERE property_id=? ORDER BY loan_id DESC", [id]);
+  const valuations = query("SELECT * FROM property_valuations WHERE property_id=? ORDER BY valuation_date DESC, valuation_id DESC", [id]);
 
   let deedRows = '';
   assigns.forEach(a => {
@@ -163,7 +164,14 @@ function openPropDetail(id) {
       <table><tbody>${txnRows}</tbody></table></div>
 
     <div class="card"><div class="card-head"><h3>③ 銀行借貸</h3><button class="btn ghost" onclick="openLoanForm(0,${id})">+ 新增貸款</button></div>
-      <table><tbody>${loanRows}</tbody></table></div>`;
+      <table><tbody>${loanRows}</tbody></table></div>
+
+    <div class="card"><div class="card-head"><h3>④ 物件價值</h3>
+      ${valuations[0]?`<span style="color:var(--accent);font-weight:700;font-size:18px">$${fmt(valuations[0].market_value)}</span><span style="color:var(--text-dim);font-size:13px">（${esc(valuations[0].valuation_date||'')}　${enumLabel('valuation_source',valuations[0].source)||''}）</span>`:'<span style="color:var(--text-dim)">尚未評估</span>'}
+      <button class="btn ghost" style="margin-left:auto" onclick="showPage('valuations')">→ 進入物件價值</button>
+      <button class="btn" onclick="openValuationForm(${id})">+ 新增評估</button></div>
+      ${valuations.length?`<table><thead><tr><th>日期</th><th>來源</th><th class="right">市值</th><th class="right">每坪</th><th>附註</th></tr></thead><tbody>${valuations.slice(0,5).map(v=>`<tr><td class="mono">${esc(v.valuation_date)||'—'}</td><td>${enumLabel('valuation_source',v.source)||'—'}</td><td class="mono right"><b>$${fmt(v.market_value)}</b></td><td class="mono right">${v.price_per_ping?'$'+fmt(v.price_per_ping):'—'}</td><td style="font-size:13px;color:var(--text-dim)">${esc(v.notes)||''}</td></tr>`).join('')}</tbody></table>${valuations.length>5?`<div style="text-align:right;padding:8px;color:var(--text-dim);font-size:13px">僅顯示最近 5 筆，完整紀錄請至「物件價值」頁</div>`:''}`:'<div style="padding:14px;color:var(--text-dim);text-align:center">尚無評估記錄</div>'}
+    </div>`;
 
   document.querySelectorAll('.page').forEach(x => x.classList.toggle('active', x.id === 'propDetail'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -200,6 +208,107 @@ function unassignDeed(assignId, propId) {
   if (!confirm('解除這張權狀與此物件的歸屬？（不會刪除權狀本身）')) return;
   run("UPDATE deed_assignments SET is_current=0, end_date=? WHERE assignment_id=?", [now(), assignId]);
   autoSave(); toast('已解除歸屬'); openPropDetail(propId);
+}
+
+/* ====================== 物件價值（市值評估） ====================== */
+function renderValuationList() {
+  const props = query("SELECT property_id, name, door_address FROM properties ORDER BY property_id");
+  let html = `<h2 class="page-title">物件價值</h2>
+    <div class="page-desc">記錄各物件的市值評估、實價登錄參考、仲介估價等，方便買賣談價時調出資料。</div>
+    <div class="note" style="background:#fef3c7;border-color:#fde68a;color:#92400e;margin-bottom:14px">
+      ⚠️ 系統無法自動抓市價（實價登錄/591/AI估價皆無公開API）。請手動查詢後填入；下方提供查詢網站快速連結。
+    </div>`;
+  if (!props.length) {
+    html += `<div class="note">尚無物件。請先到「不動產物件」或在總覽按「↻ 重新整理物件」建立物件。</div>`;
+    $('#valuations').innerHTML = html;
+    return;
+  }
+  props.forEach(p => {
+    const vs = query("SELECT * FROM property_valuations WHERE property_id=? ORDER BY valuation_date DESC, valuation_id DESC", [p.property_id]);
+    const latest = vs[0];
+    const addr = p.door_address || p.name;
+    const enc = encodeURIComponent(addr);
+    html += `<div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <h3>${esc(p.name)}</h3>
+        ${latest ? `<span style="color:var(--accent);font-weight:700;font-size:18px">$${fmt(latest.market_value)}</span><span style="color:var(--text-dim);font-size:13px">（${esc(latest.valuation_date||'')}　${enumLabel('valuation_source',latest.source)||''}）</span>` : '<span style="color:var(--text-dim)">尚未評估</span>'}
+        <button class="btn" style="margin-left:auto" onclick="openValuationForm(${p.property_id})">+ 新增評估</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 4px 10px">
+        <a class="btn ghost" target="_blank" href="https://lvr.land.moi.gov.tw/jsp/list.jsp">🔍 實價登錄</a>
+        <a class="btn ghost" target="_blank" href="https://www.591.com.tw/?keyword=${enc}">🔍 591</a>
+        <a class="btn ghost" target="_blank" href="https://www.sinyi.com.tw/buy/list/${enc}">🔍 信義房屋</a>
+        <a class="btn ghost" target="_blank" href="https://buy.yungching.com.tw/region/${enc}">🔍 永慶房屋</a>
+        <a class="btn ghost" target="_blank" href="https://www.google.com/search?q=${enc}+實價登錄">🔍 Google 搜尋</a>
+      </div>`;
+    if (vs.length) {
+      html += `<table><thead><tr><th>日期</th><th>來源</th><th class="right">市值</th><th class="right">每坪</th><th>附註</th><th></th></tr></thead><tbody>`;
+      vs.forEach(v => {
+        html += `<tr>
+          <td class="mono">${esc(v.valuation_date)||'—'}</td>
+          <td>${enumLabel('valuation_source',v.source)||'—'}${v.source_url?` <a href="${esc(v.source_url)}" target="_blank" style="color:var(--accent);font-size:13px">[連結]</a>`:''}</td>
+          <td class="mono right"><b>$${fmt(v.market_value)}</b></td>
+          <td class="mono right">${v.price_per_ping?'$'+fmt(v.price_per_ping):'—'}</td>
+          <td style="font-size:13px;color:var(--text-dim)">${esc(v.notes)||''}</td>
+          <td><div class="row-actions"><button class="icon-btn" onclick="openValuationForm(${p.property_id},${v.valuation_id})">編輯</button><button class="icon-btn del" onclick="deleteValuation(${v.valuation_id})">刪除</button></div></td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    } else {
+      html += `<div style="padding:14px;color:var(--text-dim);text-align:center">尚無評估記錄</div>`;
+    }
+    html += `</div>`;
+  });
+  $('#valuations').innerHTML = html;
+}
+function openValuationForm(propId, vid) {
+  const v = vid ? query("SELECT * FROM property_valuations WHERE valuation_id=?", [vid])[0] : {};
+  const p = query("SELECT * FROM properties WHERE property_id=?", [propId])[0];
+  openModal(`
+    <div class="modal-head"><h3>${vid?'編輯':'新增'}價值評估 · ${esc(p.name)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      ${fieldRocDate('valuation_date','評估日期',v.valuation_date,{hint:'例如：今天，或實價登錄交易日'})}
+      ${fieldSelect('source','資料來源','valuation_source',v.source)}
+      ${fieldText('market_value','市值（整筆，新台幣）',v.market_value,{type:'number',ph:'例：12000000',hint:'這筆物件的總市值'})}
+      ${fieldText('price_per_ping','每坪單價（選填）',v.price_per_ping,{type:'number',ph:'例：450000'})}
+      ${fieldText('source_url','來源連結（選填）',v.source_url,{full:true,ph:'https://...實價登錄/591連結'})}
+      ${fieldText('notes','附註（選填）',v.notes,{full:true,ph:'例：附近100公尺內成交、含車位、屋齡25年類似條件等'})}
+    </div></div>
+    <div class="modal-foot">
+      <span></span>
+      <div><button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="saveValuation(${propId},${vid||0})">儲存</button></div>
+    </div>`);
+}
+function saveValuation(propId, vid) {
+  const f = document.querySelector('#modal');
+  const data = {
+    property_id: propId,
+    valuation_date: readRocDate('valuation_date'),
+    source: f.querySelector('[name="source"]').value || null,
+    market_value: parseFloat(f.querySelector('[name="market_value"]').value) || null,
+    price_per_ping: parseFloat(f.querySelector('[name="price_per_ping"]').value) || null,
+    source_url: f.querySelector('[name="source_url"]').value || null,
+    notes: f.querySelector('[name="notes"]').value || null
+  };
+  if (vid) {
+    const sets = Object.keys(data).filter(k=>k!=='property_id').map(k=>`${k}=?`).join(',');
+    run(`UPDATE property_valuations SET ${sets} WHERE valuation_id=?`, [...Object.keys(data).filter(k=>k!=='property_id').map(k=>data[k]), vid]);
+  } else {
+    data.created_at = now();
+    const cols = Object.keys(data);
+    run(`INSERT INTO property_valuations (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
+  }
+  autoSave();
+  closeModal();
+  toast(vid?'已更新評估':'已新增評估');
+  renderValuationList();
+}
+function deleteValuation(vid) {
+  if (!confirm('確定刪除這筆評估？')) return;
+  run("DELETE FROM property_valuations WHERE valuation_id=?", [vid]);
+  autoSave();
+  renderValuationList();
 }
 
 /* ====================== 買賣交易 ====================== */
