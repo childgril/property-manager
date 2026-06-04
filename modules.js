@@ -316,6 +316,12 @@ function openValuationForm(propId, vid) {
   openModal(`
     <div class="modal-head"><h3>${vid?'編輯':'新增'}價值評估 · ${esc(p.name)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
+      <div class="field full" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px">
+        <label style="color:#1e40af">📋 貼上文字自動填入（推薦：從樂屋網／實價登錄／591 複製文字後貼上）</label>
+        <textarea id="autoParseText" rows="4" placeholder="例：&#10;114/06 華廈&#10;花蓮市國富十一街32號2樓之2&#10;488 萬  25 萬/坪&#10;總建坪 19.49坪&#10;屋齡 28.7年  房(室)廳衛 2/1/1&#10;樓層 2/5樓  無車位&#10;&#10;貼上後按下方按鈕，會自動解析填入欄位" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;background:white"></textarea>
+        <button type="button" class="btn" style="margin-top:8px" onclick="parseAndFillValuation()">✨ 解析並填入下方欄位</button>
+        <div class="hint" style="color:#1e40af">解析後仍可手動修改欄位內容</div>
+      </div>
       <div class="section-label">基本</div>
       ${fieldRocDate('valuation_date','評估日期',v.valuation_date,{hint:'例如：今天、或實價登錄交易月份'})}
       ${fieldSelect('source','資料來源','valuation_source',v.source)}
@@ -378,6 +384,114 @@ function clearValuationPhoto() {
   document.getElementById('valuationPhotoData').value = '';
   document.getElementById('valuationPhotoPreview').innerHTML = '';
 }
+
+/* 解析貼上的文字，自動填入評估表單欄位
+   支援：總價、每坪、坪數、地坪、樓層、屋齡、房廳衛、車位、型態、地址、日期（民國/西元）
+   策略：用正則抓「關鍵字+數字+單位」，認到就填，認不到就跳過（保留原值） */
+function parseAndFillValuation() {
+  const txt = (document.getElementById('autoParseText').value || '').trim();
+  if (!txt) { toast('請先貼入文字', true); return; }
+  const f = document.querySelector('#modal');
+  const set = (name, val) => {
+    if (val == null || val === '') return false;
+    const el = f.querySelector(`[name="${name}"]`);
+    if (!el) return false;
+    el.value = val;
+    return true;
+  };
+  const filled = [];
+
+  // 1) 總價：「488 萬」「488萬」「4,880,000」「8000 萬」
+  let m = txt.match(/(\d{1,5}(?:,\d{3})*)\s*萬(?!\s*\/)/);
+  if (m) {
+    const wan = parseFloat(m[1].replace(/,/g,''));
+    set('market_value', Math.round(wan * 10000));
+    filled.push(`總價 ${wan}萬`);
+  } else {
+    // 沒「萬」字 → 找大金額（>=100萬的純數字，避免抓到坪數年份）
+    m = txt.match(/(?:總價|成交價)[^\d]{0,5}([\d,]{7,12})/);
+    if (m) { set('market_value', parseFloat(m[1].replace(/,/g,''))); filled.push('總價'); }
+  }
+
+  // 2) 每坪：「25 萬/坪」「25.5萬/坪」「24.5 萬/坪」「250,000 元/坪」
+  m = txt.match(/(\d+(?:\.\d+)?)\s*萬\s*\/\s*坪/);
+  if (m) {
+    const wan = parseFloat(m[1]);
+    set('price_per_ping', Math.round(wan * 10000));
+    filled.push(`每坪 ${wan}萬`);
+  } else {
+    m = txt.match(/([\d,]{5,})\s*元?\s*\/\s*坪/);
+    if (m) { set('price_per_ping', parseFloat(m[1].replace(/,/g,''))); filled.push('每坪'); }
+  }
+
+  // 3) 總建坪：「總建坪 19.49坪」「建坪 19.49」「19.49坪」（取「坪」前最近的數字，排除地坪）
+  m = txt.match(/(?:總建坪|建坪)\s*(\d+(?:\.\d+)?)/);
+  if (!m) m = txt.match(/(?<!地)(\d+(?:\.\d+)?)\s*坪(?!\s*\/)/);
+  if (m) { set('ref_total_ping', parseFloat(m[1])); filled.push(`建坪 ${m[1]}`); }
+
+  // 4) 地坪：「地坪 5坪」「地坪 4.72」
+  m = txt.match(/地坪\s*(\d+(?:\.\d+)?)/);
+  if (m) { set('ref_land_ping', parseFloat(m[1])); filled.push(`地坪 ${m[1]}`); }
+
+  // 5) 樓層：「2/5樓」「樓層 2/5樓」「4樓/5樓」
+  m = txt.match(/(\d+)\s*[\/／]\s*(\d+)\s*樓/);
+  if (m) { set('ref_floor', `${m[1]}/${m[2]}樓`); filled.push(`樓層 ${m[1]}/${m[2]}樓`); }
+
+  // 6) 屋齡：「屋齡 28.7年」「28.9 年」（取「年」前數字）
+  m = txt.match(/屋齡\s*(\d+(?:\.\d+)?)/);
+  if (!m) m = txt.match(/(\d+(?:\.\d+)?)\s*年(?!\s*\d)/);
+  if (m) { set('ref_age', parseFloat(m[1])); filled.push(`屋齡 ${m[1]}年`); }
+
+  // 7) 房廳衛：「2/1/1」「房(室)廳衛 2/1/1」「2房1廳1衛」
+  m = txt.match(/(\d)\s*[\/／]\s*(\d|--|—)\s*[\/／]\s*(\d|--|—)/);
+  if (m) {
+    const r = m[1], l = (m[2]==='--'||m[2]==='—')?'':m[2], b = (m[3]==='--'||m[3]==='—')?'':m[3];
+    set('ref_rooms', `${r}/${l||'--'}/${b||'--'}`);
+    filled.push(`房廳衛 ${r}/${l||'--'}/${b||'--'}`);
+  } else {
+    m = txt.match(/(\d)\s*房\s*(\d)\s*廳\s*(\d)\s*衛/);
+    if (m) { set('ref_rooms', `${m[1]}/${m[2]}/${m[3]}`); filled.push(`房廳衛 ${m[1]}/${m[2]}/${m[3]}`); }
+  }
+
+  // 8) 車位
+  if (/無車位/.test(txt)) { set('ref_parking', '無車位'); filled.push('無車位'); }
+  else { m = txt.match(/(\d+)\s*個?\s*車位/); if (m) { set('ref_parking', `${m[1]}個車位`); filled.push(`${m[1]}個車位`); } }
+
+  // 9) 型態：華廈/公寓/透天/大樓/別墅/套房等
+  m = txt.match(/(華廈|公寓|電梯大樓|大樓|透天厝?|別墅|套房|店面|辦公|廠房|農舍)/);
+  if (m) { set('ref_building_type', m[1]); filled.push(`型態 ${m[1]}`); }
+
+  // 10) 地址：包含「市」「區」「路」「街」其中之一，跳過已知關鍵字
+  const addrM = txt.split(/[\n\r]+/).find(line => /[市區].*[路街巷弄號]/.test(line) && line.length < 60 && !/坪|樓|年|萬/.test(line));
+  if (addrM) { set('ref_address', addrM.trim()); filled.push('地址'); }
+
+  // 11) 評估日期：「114/06」「114年6月」「2025/06/01」「民國114年6月1日」
+  m = txt.match(/民國\s*(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (!m) m = txt.match(/(\d{2,3})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})/);
+  if (!m) m = txt.match(/(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})/);
+  if (!m) {
+    // 只有年月（114/06）→ 補日=1
+    const mm = txt.match(/(?:^|[^\d])(\d{2,3})\s*[\/-年]\s*(\d{1,2})(?![\/\d])/);
+    if (mm) m = [mm[0], mm[1], mm[2], '1'];
+  }
+  if (m) {
+    let y = parseInt(m[1]); if (y < 1911) y += 1911;
+    const mo = parseInt(m[2]), d = parseInt(m[3]);
+    // 寫回民國年三格輸入
+    const yEl = f.querySelector('[data-roc="valuation_date"][data-part="y"]');
+    const moEl = f.querySelector('[data-roc="valuation_date"][data-part="m"]');
+    const dEl = f.querySelector('[data-roc="valuation_date"][data-part="d"]');
+    if (yEl && moEl && dEl) {
+      yEl.value = y - 1911; moEl.value = mo; dEl.value = d;
+      if (typeof updateRocWest === 'function') updateRocWest('valuation_date');
+      filled.push(`日期 ${y}/${mo}/${d}`);
+    }
+  }
+
+  // 結果回饋
+  if (filled.length) toast(`已解析填入：${filled.join('、')}`);
+  else toast('沒有解析到任何欄位，請檢查文字格式或手動填寫', true);
+}
 function saveValuation(propId, vid) {
   const f = document.querySelector('#modal');
   const photoEl = document.getElementById('valuationPhotoData');
@@ -437,9 +551,15 @@ function saveValuation(propId, vid) {
 }
 function deleteValuation(vid) {
   if (!confirm('確定刪除這筆評估？')) return;
-  run("DELETE FROM property_valuations WHERE valuation_id=?", [vid]);
-  autoSave();
-  renderValuationList();
+  try {
+    run("DELETE FROM property_valuations WHERE valuation_id=?", [vid]);
+    autoSave();
+    toast('已刪除');
+    // 用 setTimeout 讓 confirm 對話框先確實關閉，再重畫，避免 UI 卡住
+    setTimeout(() => renderValuationList(), 50);
+  } catch(e) {
+    alert('刪除失敗：' + e.message);
+  }
 }
 /* 點縮圖看大圖：用 modal 顯示 */
 function showPhotoFull(vid) {
