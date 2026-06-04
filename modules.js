@@ -213,10 +213,17 @@ function unassignDeed(assignId, propId) {
 /* ====================== 物件價值（市值評估） ====================== */
 function renderValuationList() {
   const props = query("SELECT property_id, name, door_address FROM properties ORDER BY property_id");
+  const aprCount = query("SELECT COUNT(*) c FROM actual_price_records")[0].c;
   let html = `<h2 class="page-title">物件價值</h2>
     <div class="page-desc">記錄各物件的市值評估、實價登錄參考、仲介估價等，方便買賣談價時調出資料。</div>
+    <div class="toolbar" style="margin-bottom:14px">
+      <button class="btn" onclick="importActualPriceCSV()">📥 匯入內政部實價登錄 CSV</button>
+      ${aprCount?`<span style="color:var(--text-dim);margin-left:8px">已有 ${aprCount} 筆實價登錄參考資料</span><button class="btn ghost" onclick="clearActualPriceRecords()">🗑 清空實登資料</button>`:''}
+      <a class="btn ghost" target="_blank" href="https://plvr.land.moi.gov.tw/DownloadOpenData" style="margin-left:auto">→ 內政部開放資料下載</a>
+    </div>
     <div class="note" style="background:#fef3c7;border-color:#fde68a;color:#92400e;margin-bottom:14px">
-      ⚠️ 系統無法自動抓市價（實價登錄/591/AI估價皆無公開API）。請手動查詢後填入；下方提供查詢網站快速連結。
+      💡 提示：系統無法自動抓市價。請先到內政部下載 CSV、或從實價登錄/591 查到資料後手動填入。<br>
+      📥 匯入 CSV 時可輸入「地段關鍵字」（例：國富、花蓮市）只匯入相關區域，避免資料過多。
     </div>`;
   if (!props.length) {
     html += `<div class="note">尚無物件。請先到「不動產物件」或在總覽按「↻ 重新整理物件」建立物件。</div>`;
@@ -242,13 +249,25 @@ function renderValuationList() {
         <a class="btn ghost" target="_blank" href="https://www.google.com/search?q=${enc}+實價登錄">🔍 Google 搜尋</a>
       </div>`;
     if (vs.length) {
-      html += `<table><thead><tr><th>日期</th><th>來源</th><th class="right">市值</th><th class="right">每坪</th><th>附註</th><th></th></tr></thead><tbody>`;
+      html += `<table><thead><tr><th>日期</th><th>來源</th><th class="right">總價</th><th class="right">每坪</th><th>參考物件</th><th>照片</th><th>附註</th><th></th></tr></thead><tbody>`;
       vs.forEach(v => {
+        const refInfo = [
+          v.ref_address ? esc(v.ref_address) : '',
+          v.ref_building_type ? esc(v.ref_building_type) : '',
+          v.ref_total_ping ? `${v.ref_total_ping}坪` : '',
+          v.ref_floor ? esc(v.ref_floor) : '',
+          v.ref_age ? `屋齡${v.ref_age}年` : '',
+          v.ref_rooms ? `房廳衛${esc(v.ref_rooms)}` : '',
+          v.ref_parking ? esc(v.ref_parking) : ''
+        ].filter(x=>x).join(' · ');
+        const thumb = v.photo ? `<img src="data:image/jpeg;base64,${v.photo}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="event.stopPropagation();showPhotoFull(${v.valuation_id})">` : '<span style="color:var(--text-dim)">—</span>';
         html += `<tr>
           <td class="mono">${esc(v.valuation_date)||'—'}</td>
           <td>${enumLabel('valuation_source',v.source)||'—'}${v.source_url?` <a href="${esc(v.source_url)}" target="_blank" style="color:var(--accent);font-size:13px">[連結]</a>`:''}</td>
           <td class="mono right"><b>$${fmt(v.market_value)}</b></td>
           <td class="mono right">${v.price_per_ping?'$'+fmt(v.price_per_ping):'—'}</td>
+          <td style="font-size:13px">${refInfo||'<span style="color:var(--text-dim)">—</span>'}</td>
+          <td>${thumb}</td>
           <td style="font-size:13px;color:var(--text-dim)">${esc(v.notes)||''}</td>
           <td><div class="row-actions"><button class="icon-btn" onclick="openValuationForm(${p.property_id},${v.valuation_id})">編輯</button><button class="icon-btn del" onclick="deleteValuation(${v.valuation_id})">刪除</button></div></td>
         </tr>`;
@@ -257,6 +276,35 @@ function renderValuationList() {
     } else {
       html += `<div style="padding:14px;color:var(--text-dim);text-align:center">尚無評估記錄</div>`;
     }
+    // 鄰近實價登錄參考：抓地址含此物件門牌關鍵字（取門牌前幾個字）
+    if (aprCount) {
+      const addr = p.door_address || p.name || '';
+      // 取地址前4-6字當關鍵字（如「花蓮市國富」），擷取到第一個數字之前
+      let kw = addr.replace(/[0-9０-９]+.*/,'').trim();
+      if (kw.length >= 3) {
+        const aprs = query("SELECT * FROM actual_price_records WHERE address LIKE ? OR district LIKE ? ORDER BY transaction_date DESC LIMIT 10", ['%'+kw+'%','%'+kw+'%']);
+        if (aprs.length) {
+          html += `<div style="margin:8px 14px 4px;padding:8px 12px;background:#eff6ff;border-radius:6px;font-size:13px;color:#1e40af">
+            🔍 鄰近實價登錄參考（地址含「${esc(kw)}」共 ${aprs.length} 筆，顯示最新10筆）
+          </div>
+          <table style="font-size:12.5px"><thead><tr><th>交易日</th><th>地址</th><th>型態</th><th class="right">總價</th><th class="right">每坪</th><th>建坪</th><th>樓層</th><th>屋齡</th><th>房廳衛</th></tr></thead><tbody>`;
+          aprs.forEach(a => {
+            html += `<tr>
+              <td class="mono">${esc(a.transaction_date)||'—'}</td>
+              <td>${esc(a.address)||'—'}</td>
+              <td>${esc(a.building_type)||'—'}</td>
+              <td class="mono right"><b>$${fmt(a.total_price)}</b></td>
+              <td class="mono right">${a.unit_price_per_ping?'$'+fmt(a.unit_price_per_ping):'—'}</td>
+              <td class="mono">${a.building_area_sqm?(a.building_area_sqm*0.3025).toFixed(2)+'坪':'—'}</td>
+              <td>${esc(a.floor_info)||'—'}</td>
+              <td>${a.age?a.age+'年':'—'}</td>
+              <td>${esc(a.rooms)||'—'}</td>
+            </tr>`;
+          });
+          html += `</tbody></table>`;
+        }
+      }
+    }
     html += `</div>`;
   });
   $('#valuations').innerHTML = html;
@@ -264,15 +312,37 @@ function renderValuationList() {
 function openValuationForm(propId, vid) {
   const v = vid ? query("SELECT * FROM property_valuations WHERE valuation_id=?", [vid])[0] : {};
   const p = query("SELECT * FROM properties WHERE property_id=?", [propId])[0];
+  const photoSrc = v.photo ? `data:image/jpeg;base64,${v.photo}` : '';
   openModal(`
     <div class="modal-head"><h3>${vid?'編輯':'新增'}價值評估 · ${esc(p.name)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      ${fieldRocDate('valuation_date','評估日期',v.valuation_date,{hint:'例如：今天，或實價登錄交易日'})}
+      <div class="section-label">基本</div>
+      ${fieldRocDate('valuation_date','評估日期',v.valuation_date,{hint:'例如：今天、或實價登錄交易月份'})}
       ${fieldSelect('source','資料來源','valuation_source',v.source)}
-      ${fieldText('market_value','市值（整筆，新台幣）',v.market_value,{type:'number',ph:'例：12000000',hint:'這筆物件的總市值'})}
-      ${fieldText('price_per_ping','每坪單價（選填）',v.price_per_ping,{type:'number',ph:'例：450000'})}
-      ${fieldText('source_url','來源連結（選填）',v.source_url,{full:true,ph:'https://...實價登錄/591連結'})}
-      ${fieldText('notes','附註（選填）',v.notes,{full:true,ph:'例：附近100公尺內成交、含車位、屋齡25年類似條件等'})}
+      ${fieldText('market_value','總價（新台幣）',v.market_value,{type:'number',ph:'例：4880000（488萬）'})}
+      ${fieldText('price_per_ping','每坪單價',v.price_per_ping,{type:'number',ph:'例：250000（25萬/坪）'})}
+      ${fieldText('source_url','來源連結',v.source_url,{full:true,ph:'https://...實價登錄/591連結'})}
+
+      <div class="section-label">參考物件資訊（實價登錄查到的鄰近案例可填這區）</div>
+      ${fieldText('ref_address','參考物件地址',v.ref_address,{full:true,ph:'例：花蓮市國富十一街32號2樓之2'})}
+      ${fieldText('ref_building_type','物件型態',v.ref_building_type,{ph:'華廈／公寓／透天'})}
+      ${fieldText('ref_total_ping','總建坪',v.ref_total_ping,{type:'number',ph:'例：19.49'})}
+      ${fieldText('ref_land_ping','地坪',v.ref_land_ping,{type:'number',ph:'例：5'})}
+      ${fieldText('ref_floor','樓層',v.ref_floor,{ph:'例：2/5樓'})}
+      ${fieldText('ref_age','屋齡（年）',v.ref_age,{type:'number',ph:'例：28.7'})}
+      ${fieldText('ref_rooms','房／廳／衛',v.ref_rooms,{ph:'例：2/1/1'})}
+      ${fieldText('ref_parking','車位',v.ref_parking,{ph:'例：1個、無車位'})}
+
+      <div class="section-label">附加</div>
+      ${fieldText('notes','附註',v.notes,{full:true,ph:'例：附近100公尺內成交、屋齡相近、含車位等'})}
+      <div class="field full">
+        <label>照片（實價登錄截圖、現場照等，會自動壓縮）</label>
+        <input type="file" accept="image/*" onchange="handleValuationPhoto(event)" style="padding:8px">
+        <div id="valuationPhotoPreview" style="margin-top:8px">
+          ${photoSrc?`<img src="${photoSrc}" style="max-width:300px;max-height:300px;border-radius:6px;border:1px solid var(--border)"><br><button type="button" class="btn ghost" style="margin-top:6px" onclick="clearValuationPhoto()">移除照片</button>`:''}
+        </div>
+        <input type="hidden" id="valuationPhotoData" value="${v.photo||''}">
+      </div>
     </div></div>
     <div class="modal-foot">
       <span></span>
@@ -280,8 +350,37 @@ function openValuationForm(propId, vid) {
       <button class="btn" onclick="saveValuation(${propId},${vid||0})">儲存</button></div>
     </div>`);
 }
+/* 處理上傳的照片：用 canvas 壓縮成 JPEG 1200px寬 70%品質 */
+function handleValuationPhoto(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxW = 1200;
+      const scale = Math.min(1, maxW / img.width);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      const base64 = dataUrl.split(',')[1];
+      document.getElementById('valuationPhotoData').value = base64;
+      document.getElementById('valuationPhotoPreview').innerHTML = 
+        `<img src="${dataUrl}" style="max-width:300px;max-height:300px;border-radius:6px;border:1px solid var(--border)"><br><button type="button" class="btn ghost" style="margin-top:6px" onclick="clearValuationPhoto()">移除照片</button>`;
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function clearValuationPhoto() {
+  document.getElementById('valuationPhotoData').value = '';
+  document.getElementById('valuationPhotoPreview').innerHTML = '';
+}
 function saveValuation(propId, vid) {
   const f = document.querySelector('#modal');
+  const photoVal = document.getElementById('valuationPhotoData').value || null;
   const data = {
     property_id: propId,
     valuation_date: readRocDate('valuation_date'),
@@ -289,7 +388,16 @@ function saveValuation(propId, vid) {
     market_value: parseFloat(f.querySelector('[name="market_value"]').value) || null,
     price_per_ping: parseFloat(f.querySelector('[name="price_per_ping"]').value) || null,
     source_url: f.querySelector('[name="source_url"]').value || null,
-    notes: f.querySelector('[name="notes"]').value || null
+    ref_address: f.querySelector('[name="ref_address"]').value || null,
+    ref_building_type: f.querySelector('[name="ref_building_type"]').value || null,
+    ref_total_ping: parseFloat(f.querySelector('[name="ref_total_ping"]').value) || null,
+    ref_land_ping: parseFloat(f.querySelector('[name="ref_land_ping"]').value) || null,
+    ref_floor: f.querySelector('[name="ref_floor"]').value || null,
+    ref_age: parseFloat(f.querySelector('[name="ref_age"]').value) || null,
+    ref_rooms: f.querySelector('[name="ref_rooms"]').value || null,
+    ref_parking: f.querySelector('[name="ref_parking"]').value || null,
+    notes: f.querySelector('[name="notes"]').value || null,
+    photo: photoVal
   };
   if (vid) {
     const sets = Object.keys(data).filter(k=>k!=='property_id').map(k=>`${k}=?`).join(',');
@@ -309,6 +417,16 @@ function deleteValuation(vid) {
   run("DELETE FROM property_valuations WHERE valuation_id=?", [vid]);
   autoSave();
   renderValuationList();
+}
+/* 點縮圖看大圖：用 modal 顯示 */
+function showPhotoFull(vid) {
+  const v = query("SELECT photo FROM property_valuations WHERE valuation_id=?", [vid])[0];
+  if (!v || !v.photo) return;
+  openModal(`
+    <div class="modal-head"><h3>照片預覽</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="text-align:center;padding:10px">
+      <img src="data:image/jpeg;base64,${v.photo}" style="max-width:100%;max-height:80vh;border-radius:6px">
+    </div>`);
 }
 
 /* ====================== 買賣交易 ====================== */
