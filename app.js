@@ -258,6 +258,64 @@ function exportCSV(headers, rows, filename) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+/* 解析 CSV 字串為二維陣列（處理 BOM、引號包含的逗號/換行/雙引號） */
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // 去 BOM
+  const rows = []; let row = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') {
+        if (text[i+1] === '"') { cur += '"'; i++; } else { inQ = false; }
+      } else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { row.push(cur); cur = ''; }
+      else if (c === '\r') { /* skip */ }
+      else if (c === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+      else cur += c;
+    }
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.length > 1 || (r.length === 1 && r[0] !== ''));
+}
+
+/* 民國年日期字串轉西元 ISO（"民國108年3月15日" / "108/3/15" / "108-3-15" 都可） */
+function rocToWest(s) {
+  if (!s) return null;
+  s = String(s).trim();
+  // 已是西元（含 -）就原樣
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) return s;
+  // 從字串抓三個數字當 年月日
+  const m = s.match(/(\d{1,3})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (!m) return null;
+  let y = parseInt(m[1]); const mo = parseInt(m[2]); const d = parseInt(m[3]);
+  if (y < 1911) y += 1911;  // 視為民國年
+  return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
+/* 把 ENUM 的中文標籤反查回代碼。例：('land_acq','贈與') → 'gift' */
+function labelToCode(group, label) {
+  if (!label) return null;
+  const arr = ENUMS[group];
+  if (!arr) return label;
+  const hit = arr.find(([v, l]) => l === label || v === label);
+  return hit ? hit[0] : label;
+}
+
+/* 觸發隱藏 file input 讓使用者選 CSV，讀到字串後呼叫 cb(text) */
+function pickCSVFile(cb) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.csv,text/csv';
+  inp.onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const reader = new FileReader();
+    reader.onload = ev => cb(ev.target.result);
+    reader.readAsText(f, 'utf-8');
+  };
+  inp.click();
+}
+
 /* 匯出多個工作表為單一 .xls（Excel 可開，含多分頁、中文正常）。
    sheets: [{ name:'土地權狀', headers:[...], rows:[[...],...] }, ...] */
 function exportMultiSheetXLS(sheets, filename) {
@@ -526,7 +584,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.28-b</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.28-c</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>
@@ -650,7 +708,8 @@ function renderLandList() {
       <button class="chip ${landFilter==='held'?'on':''}" onclick="setLandFilter('held')">持有中</button>
       <button class="chip ${landFilter==='disposed'?'on':''}" onclick="setLandFilter('disposed')">已處分</button>
       <input class="search" placeholder="搜尋地號 / 地段 / 權狀字號" value="${esc(landSearch)}" oninput="onLandSearch(this.value)">
-      <button class="btn ghost" style="margin-left:auto" onclick="exportLands()">⬇ 匯出 Excel</button>
+      <button class="btn ghost" style="margin-left:auto" onclick="importLands()">⬆ 匯入 Excel</button>
+      <button class="btn ghost" onclick="exportLands()">⬇ 匯出 Excel</button>
       <button class="btn" onclick="openLandForm()">+ 新增土地權狀</button>
     </div>`;
 
@@ -705,6 +764,68 @@ function exportLands() {
   ]);
   exportCSV(headers, data, '土地權狀');
 }
+/* 匯入土地 CSV：以「土序」為唯一值，已存在的土序跳過，其他新增 */
+function importLands() {
+  pickCSVFile(text => {
+    const grid = parseCSV(text);
+    if (grid.length < 2) { toast('檔案是空的或格式錯誤', true); return; }
+    const headers = grid[0].map(h => h.trim());
+    // 欄名 → 索引 對應表（中文表頭都認）
+    const idx = name => headers.indexOf(name);
+    const have = c => idx(c) >= 0;
+    const existing = {};  // 土序 -> 已存在
+    query("SELECT sort_order FROM lands WHERE sort_order IS NOT NULL").forEach(r => existing[String(r.sort_order)] = true);
+    let added = 0, skipped = 0, noSortOrder = 0;
+    for (let i = 1; i < grid.length; i++) {
+      const row = grid[i];
+      const get = c => { const j = idx(c); return j >= 0 ? (row[j]||'').trim() : ''; };
+      const sortVal = get('土序') || get('序號');
+      if (!sortVal) { noSortOrder++; continue; }   // 沒填土序 → 跳過（避免重複匯入無法判斷）
+      if (existing[sortVal]) { skipped++; continue; }
+      // 組欄位
+      const data = {
+        sort_order: parseFloat(sortVal) || sortVal,
+        deed_physical_location: get('權狀正本位置'),
+        title_deed_number: get('權狀字號'),
+        section_name: get('地段'),
+        land_number: get('地號'),
+        land_category: get('地目'),
+        land_grade: get('等則'),
+        total_area_sqm: parseFloat(get('面積㎡'))||parseFloat(get('面積'))||null,
+        share_numerator: null, share_denominator: null,
+        owner_name: get('所有權人'),
+        acquired_at: rocToWest(get('登記日期')),
+        acquisition_type: labelToCode('land_acq', get('取得方式')),
+        acquisition_cost: parseFloat(get('取得成本'))||null,
+        fee_land_increment_tax: parseFloat(get('土地增值稅'))||null,
+        fee_gift_tax: parseFloat(get('贈與稅'))||null,
+        fee_stamp_duty: parseFloat(get('印花稅'))||null,
+        fee_lawyer: parseFloat(get('代書費'))||null,
+        fee_broker: parseFloat(get('仲介費'))||null,
+        fee_registration: parseFloat(get('登記規費'))||null,
+        fee_other: parseFloat(get('其他費用'))||null,
+        lifecycle_status: labelToCode('land_status', get('狀態')) || 'held',
+        disposed_at: rocToWest(get('處分日')),
+        disposal_type: labelToCode('land_disposal', get('處分方式')),
+        notes: get('備註'),
+        created_at: now(), updated_at: now()
+      };
+      // 持分 1/2 之類
+      const sh = get('持分');
+      if (sh && sh.indexOf('/') > 0) { const [n,d] = sh.split('/'); data.share_numerator = parseFloat(n)||null; data.share_denominator = parseFloat(d)||null; }
+      const cols = Object.keys(data);
+      run(`INSERT INTO lands (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
+      existing[sortVal] = true;
+      added++;
+    }
+    autoSave();
+    let msg = `匯入完成：新增 ${added} 筆`;
+    if (skipped) msg += `、跳過 ${skipped} 筆（土序已存在）`;
+    if (noSortOrder) msg += `、忽略 ${noSortOrder} 筆（無土序）`;
+    toast(msg);
+    renderLandList();
+  });
+}
 
 /* ============================================================
    建物權狀：列表
@@ -732,7 +853,8 @@ function renderBuildingList() {
       <button class="chip ${bldFilter==='held'?'on':''}" onclick="setBldFilter('held')">持有中</button>
       <button class="chip ${bldFilter==='disposed'?'on':''}" onclick="setBldFilter('disposed')">已處分</button>
       <input class="search" placeholder="搜尋建號 / 門牌 / 權狀字號" value="${esc(bldSearch)}" oninput="onBldSearch(this.value)">
-      <button class="btn ghost" style="margin-left:auto" onclick="exportBuildings()">⬇ 匯出 Excel</button>
+      <button class="btn ghost" style="margin-left:auto" onclick="importBuildings()">⬆ 匯入 Excel</button>
+      <button class="btn ghost" onclick="exportBuildings()">⬇ 匯出 Excel</button>
       <button class="btn" onclick="openBuildingForm()">+ 新增建物權狀</button>
     </div>`;
 
@@ -788,6 +910,68 @@ function exportBuildings() {
     enumLabel('building_status',r.lifecycle_status), rocDate(r.disposed_at), enumLabel('building_disposal',r.disposal_type), r.notes
   ]);
   exportCSV(headers, data, '建物權狀');
+}
+/* 匯入建物 CSV：以「建序」為唯一值，已存在的建序跳過，其他新增 */
+function importBuildings() {
+  pickCSVFile(text => {
+    const grid = parseCSV(text);
+    if (grid.length < 2) { toast('檔案是空的或格式錯誤', true); return; }
+    const headers = grid[0].map(h => h.trim());
+    const idx = name => headers.indexOf(name);
+    const existing = {};
+    query("SELECT sort_order FROM buildings WHERE sort_order IS NOT NULL").forEach(r => existing[String(r.sort_order)] = true);
+    let added = 0, skipped = 0, noSortOrder = 0;
+    for (let i = 1; i < grid.length; i++) {
+      const row = grid[i];
+      const get = c => { const j = idx(c); return j >= 0 ? (row[j]||'').trim() : ''; };
+      const sortVal = get('建序') || get('序號');
+      if (!sortVal) { noSortOrder++; continue; }
+      if (existing[sortVal]) { skipped++; continue; }
+      const data = {
+        sort_order: parseFloat(sortVal) || sortVal,
+        deed_physical_location: get('權狀正本位置'),
+        title_deed_number: get('權狀字號'),
+        building_number: get('建號'),
+        door_address: get('門牌地址') || get('地址'),
+        building_type: labelToCode('building_type', get('建物型態')),
+        structure: get('主要構造'),
+        usage_registered: get('登記用途'),
+        main_area_sqm: parseFloat(get('主建物㎡'))||null,
+        auxiliary_area_sqm: parseFloat(get('附屬建物㎡'))||null,
+        common_area_sqm: parseFloat(get('共有部分㎡'))||null,
+        total_registered_area_sqm: parseFloat(get('權狀總登記㎡'))||null,
+        share_numerator: null, share_denominator: null,
+        owner_name: get('所有權人'),
+        acquired_at: rocToWest(get('登記日期')),
+        acquisition_type: labelToCode('building_acq', get('取得方式')),
+        acquisition_cost: parseFloat(get('取得成本'))||null,
+        fee_deed_tax: parseFloat(get('契稅'))||null,
+        fee_gift_tax: parseFloat(get('贈與稅'))||null,
+        fee_stamp_duty: parseFloat(get('印花稅'))||null,
+        fee_lawyer: parseFloat(get('代書費'))||null,
+        fee_broker: parseFloat(get('仲介費'))||null,
+        fee_registration: parseFloat(get('登記規費'))||null,
+        fee_other: parseFloat(get('其他費用'))||null,
+        lifecycle_status: labelToCode('building_status', get('狀態')) || 'held',
+        disposed_at: rocToWest(get('處分日')),
+        disposal_type: labelToCode('building_disposal', get('處分方式')),
+        notes: get('備註'),
+        created_at: now(), updated_at: now()
+      };
+      const sh = get('持分');
+      if (sh && sh.indexOf('/') > 0) { const [n,d] = sh.split('/'); data.share_numerator = parseFloat(n)||null; data.share_denominator = parseFloat(d)||null; }
+      const cols = Object.keys(data);
+      run(`INSERT INTO buildings (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
+      existing[sortVal] = true;
+      added++;
+    }
+    autoSave();
+    let msg = `匯入完成：新增 ${added} 筆`;
+    if (skipped) msg += `、跳過 ${skipped} 筆（建序已存在）`;
+    if (noSortOrder) msg += `、忽略 ${noSortOrder} 筆（無建序）`;
+    toast(msg);
+    renderBuildingList();
+  });
 }
 
 window.addEventListener('DOMContentLoaded', boot);
