@@ -436,10 +436,10 @@ function run(sql, params=[]) {
   try {
     db.run(sql, params);
   } catch (e) {
-    // 保險絲：若因缺欄位失敗，自動補欄位後重試一次
-    if (/no such column|has no column/.test(e.message)) {
+    // 保險絲：若因缺欄位/缺表失敗，自動 migrate 後重試一次
+    if (/no such column|has no column|no such table/.test(e.message)) {
       migrate();
-      db.run(sql, params); // 重試，補完欄位應該就成功
+      db.run(sql, params);
     } else {
       throw e;
     }
@@ -626,7 +626,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.05.28-f</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.04-a</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>

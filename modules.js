@@ -380,37 +380,60 @@ function clearValuationPhoto() {
 }
 function saveValuation(propId, vid) {
   const f = document.querySelector('#modal');
-  const photoVal = document.getElementById('valuationPhotoData').value || null;
+  const photoEl = document.getElementById('valuationPhotoData');
+  const photoVal = (photoEl && photoEl.value) || null;
   const data = {
     property_id: propId,
     valuation_date: readRocDate('valuation_date'),
-    source: f.querySelector('[name="source"]').value || null,
-    market_value: parseFloat(f.querySelector('[name="market_value"]').value) || null,
-    price_per_ping: parseFloat(f.querySelector('[name="price_per_ping"]').value) || null,
-    source_url: f.querySelector('[name="source_url"]').value || null,
-    ref_address: f.querySelector('[name="ref_address"]').value || null,
-    ref_building_type: f.querySelector('[name="ref_building_type"]').value || null,
-    ref_total_ping: parseFloat(f.querySelector('[name="ref_total_ping"]').value) || null,
-    ref_land_ping: parseFloat(f.querySelector('[name="ref_land_ping"]').value) || null,
-    ref_floor: f.querySelector('[name="ref_floor"]').value || null,
-    ref_age: parseFloat(f.querySelector('[name="ref_age"]').value) || null,
-    ref_rooms: f.querySelector('[name="ref_rooms"]').value || null,
-    ref_parking: f.querySelector('[name="ref_parking"]').value || null,
-    notes: f.querySelector('[name="notes"]').value || null,
+    source: (f.querySelector('[name="source"]')||{}).value || null,
+    market_value: parseFloat((f.querySelector('[name="market_value"]')||{}).value) || null,
+    price_per_ping: parseFloat((f.querySelector('[name="price_per_ping"]')||{}).value) || null,
+    source_url: (f.querySelector('[name="source_url"]')||{}).value || null,
+    ref_address: (f.querySelector('[name="ref_address"]')||{}).value || null,
+    ref_building_type: (f.querySelector('[name="ref_building_type"]')||{}).value || null,
+    ref_total_ping: parseFloat((f.querySelector('[name="ref_total_ping"]')||{}).value) || null,
+    ref_land_ping: parseFloat((f.querySelector('[name="ref_land_ping"]')||{}).value) || null,
+    ref_floor: (f.querySelector('[name="ref_floor"]')||{}).value || null,
+    ref_age: parseFloat((f.querySelector('[name="ref_age"]')||{}).value) || null,
+    ref_rooms: (f.querySelector('[name="ref_rooms"]')||{}).value || null,
+    ref_parking: (f.querySelector('[name="ref_parking"]')||{}).value || null,
+    notes: (f.querySelector('[name="notes"]')||{}).value || null,
     photo: photoVal
   };
-  if (vid) {
-    const sets = Object.keys(data).filter(k=>k!=='property_id').map(k=>`${k}=?`).join(',');
-    run(`UPDATE property_valuations SET ${sets} WHERE valuation_id=?`, [...Object.keys(data).filter(k=>k!=='property_id').map(k=>data[k]), vid]);
-  } else {
-    data.created_at = now();
-    const cols = Object.keys(data);
-    run(`INSERT INTO property_valuations (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
+  try {
+    if (vid) {
+      const sets = Object.keys(data).filter(k=>k!=='property_id').map(k=>`${k}=?`).join(',');
+      run(`UPDATE property_valuations SET ${sets} WHERE valuation_id=?`, [...Object.keys(data).filter(k=>k!=='property_id').map(k=>data[k]), vid]);
+    } else {
+      data.created_at = now();
+      const cols = Object.keys(data);
+      run(`INSERT INTO property_valuations (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
+    }
+    autoSave();
+    closeModal();
+    toast(vid?'已更新評估':'已新增評估');
+    renderValuationList();
+  } catch(e) {
+    console.error('儲存評估失敗:', e);
+    // 可能是舊 db 缺欄位，跑一次 migrate 後重試
+    try {
+      migrate();
+      data.created_at = data.created_at || now();
+      const cols = Object.keys(data);
+      if (vid) {
+        const sets = Object.keys(data).filter(k=>k!=='property_id').map(k=>`${k}=?`).join(',');
+        run(`UPDATE property_valuations SET ${sets} WHERE valuation_id=?`, [...Object.keys(data).filter(k=>k!=='property_id').map(k=>data[k]), vid]);
+      } else {
+        run(`INSERT INTO property_valuations (${cols.join(',')}) VALUES (${cols.map(_=>'?').join(',')})`, cols.map(c=>data[c]));
+      }
+      autoSave();
+      closeModal();
+      toast('已新增評估（已自動補資料表）');
+      renderValuationList();
+    } catch(e2) {
+      alert('儲存失敗：' + e2.message + '\n\n請按 F12 開啟瀏覽器主控台看詳細錯誤，或試試「🗑 清空重來」按鈕重建資料表。');
+    }
   }
-  autoSave();
-  closeModal();
-  toast(vid?'已更新評估':'已新增評估');
-  renderValuationList();
 }
 function deleteValuation(vid) {
   if (!confirm('確定刪除這筆評估？')) return;
