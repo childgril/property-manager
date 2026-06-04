@@ -106,6 +106,11 @@ CREATE TABLE IF NOT EXISTS property_valuations (
   valuation_date TEXT,
   market_value REAL,
   price_per_ping REAL,
+  parking_price REAL,
+  main_area_ping REAL,
+  aux_area_ping REAL,
+  common_area_ping REAL,
+  parking_area_ping REAL,
   source TEXT,
   source_url TEXT,
   ref_address TEXT,
@@ -136,6 +141,8 @@ CREATE TABLE IF NOT EXISTS properties (
   current_status TEXT DEFAULT 'self_use',
   owner_name TEXT,
   notes TEXT,
+  suggested_price REAL,
+  suggested_price_notes TEXT,
   created_at TEXT, updated_at TEXT
 );
 CREATE TABLE IF NOT EXISTS deed_assignments (
@@ -627,7 +634,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.04-e</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.04-f</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>
