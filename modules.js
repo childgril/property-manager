@@ -219,7 +219,6 @@ function renderValuationList() {
     <div class="toolbar" style="margin-bottom:14px">
       <button class="btn" onclick="importActualPriceCSV()">📥 匯入內政部實價登錄 CSV</button>
       ${aprCount?`<span style="color:var(--text-dim);margin-left:8px">已有 ${aprCount} 筆實價登錄參考資料</span><button class="btn ghost" onclick="clearActualPriceRecords()">🗑 清空實登資料</button>`:''}
-      <a class="btn ghost" target="_blank" href="https://plvr.land.moi.gov.tw/DownloadOpenData" style="margin-left:auto">→ 內政部開放資料下載</a>
     </div>
     <div class="note" style="background:#fef3c7;border-color:#fde68a;color:#92400e;margin-bottom:14px">
       💡 提示：系統無法自動抓市價。請先到內政部下載 CSV、或從實價登錄/591 查到資料後手動填入。<br>
@@ -250,7 +249,7 @@ function renderValuationList() {
         <a class="btn ghost" target="_blank" href="https://www.google.com/search?q=${enc}+實價登錄">🔍 Google 搜尋</a>
       </div>`;
     if (vs.length) {
-      html += `<table style="font-size:13px"><thead><tr><th>成交日</th><th>來源</th><th>地址</th><th>型態</th><th class="right">主建物㎡</th><th class="right">附屬㎡</th><th class="right">共用㎡</th><th class="right">車位㎡</th><th class="right">總價</th><th class="right">每坪</th><th class="right">車位價</th><th>備註</th><th>照片</th><th></th></tr></thead><tbody>`;
+      html += `<table style="font-size:13px"><thead><tr><th>成交日</th><th>來源</th><th>地址</th><th>型態</th><th>樓層</th><th>屋齡</th><th>格局</th><th>車位</th><th class="right">主建物㎡</th><th class="right">附屬㎡</th><th class="right">共用㎡</th><th class="right">車位㎡</th><th class="right">總面積㎡</th><th class="right">總價</th><th class="right">每坪</th><th class="right">車位價</th><th>備註</th><th>照片</th><th></th></tr></thead><tbody>`;
       vs.forEach(v => {
         const thumb = v.photo ? `<img src="data:image/jpeg;base64,${v.photo}" style="width:42px;height:42px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="event.stopPropagation();showPhotoFull(${v.valuation_id})">` : '—';
         html += `<tr>
@@ -258,10 +257,15 @@ function renderValuationList() {
           <td>${enumLabel('valuation_source',v.source)||'—'}${v.source_url?` <a href="${esc(v.source_url)}" target="_blank" style="font-size:12px">[連結]</a>`:''}</td>
           <td style="max-width:200px;font-size:12px">${esc(v.ref_address)||'—'}</td>
           <td>${esc(v.ref_building_type)||'—'}</td>
+          <td>${esc(v.ref_floor)||'—'}</td>
+          <td class="mono right">${v.ref_age?v.ref_age+'年':'—'}</td>
+          <td>${esc(v.ref_rooms)||'—'}</td>
+          <td>${esc(v.ref_parking)||'—'}</td>
           <td class="mono right">${v.main_area_ping?v.main_area_ping:'—'}</td>
           <td class="mono right">${v.aux_area_ping?v.aux_area_ping:'—'}</td>
           <td class="mono right">${v.common_area_ping?v.common_area_ping:'—'}</td>
           <td class="mono right">${v.parking_area_ping?v.parking_area_ping:'—'}</td>
+          <td class="mono right"><b>${v.total_area_ping?v.total_area_ping:'—'}</b></td>
           <td class="mono right"><b>$${fmt(v.market_value)}</b></td>
           <td class="mono right">${v.price_per_ping?'$'+fmt(v.price_per_ping):'—'}</td>
           <td class="mono right">${v.parking_price?'$'+fmt(v.parking_price):'—'}</td>
@@ -326,12 +330,24 @@ function openValuationForm(propId, vid) {
       ${fieldSelect('source','資料來源','valuation_source',v.source)}
       ${fieldText('ref_address','地址',v.ref_address,{full:true,ph:'例：花蓮市國富十一街32號2樓之2'})}
       ${fieldText('ref_building_type','物件型態',v.ref_building_type,{ph:'華廈／公寓／透天／套房'})}
+      ${fieldText('ref_floor','樓層',v.ref_floor,{ph:'例:2/5樓'})}
+      ${fieldText('ref_age','屋齡(年)',v.ref_age,{type:'number',ph:'例:28.7'})}
+      ${fieldText('ref_rooms','格局(房/廳/衛)',v.ref_rooms,{ph:'例:2/1/1'})}
+      ${fieldText('ref_parking','車位個數',v.ref_parking,{ph:'例:1個、無車位'})}
 
       <div class="section-label">面積（坪）</div>
       ${fieldText('main_area_ping','主建物面積',v.main_area_ping,{type:'number',ph:'例：19.49'})}
       ${fieldText('aux_area_ping','附屬面積',v.aux_area_ping,{type:'number',ph:'例：1.2'})}
       ${fieldText('common_area_ping','共用面積',v.common_area_ping,{type:'number',ph:'例：3.5'})}
-      ${fieldText('parking_area_ping','車位面積',v.parking_area_ping,{type:'number',ph:'例：8'})}
+      ${fieldText('parking_area_ping','車位面積',v.parking_area_ping,{type:'number',ph:'例:8'})}
+      <div class="field full">
+        <label>總面積（坪）</label>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input name="total_area_ping" type="number" step="any" value="${esc(v.total_area_ping)}" placeholder="總面積" style="width:160px">
+          <button type="button" class="btn ghost" style="white-space:nowrap" onclick="fillValuationTotal()">↙ 帶入加總</button>
+          <span style="color:var(--text-dim);font-size:13px">主建物＋附屬＋共用＋車位 加總：<span id="valuationAreaSum" style="color:var(--accent);font-weight:600">0</span> 坪</span>
+        </div>
+      </div>
 
       <div class="section-label">價格</div>
       ${fieldText('market_value','總價（新台幣）',v.market_value,{type:'number',ph:'例：4880000（488萬）'})}
@@ -355,6 +371,12 @@ function openValuationForm(propId, vid) {
       <div><button class="btn ghost" onclick="closeModal()">取消</button>
       <button class="btn" onclick="saveValuation(${propId},${vid||0})">儲存</button></div>
     </div>`);
+  // 綁定面積欄位變動 → 自動更新加總顯示
+  ['main_area_ping','aux_area_ping','common_area_ping','parking_area_ping'].forEach(name => {
+    const el = document.querySelector(`#modal [name="${name}"]`);
+    if (el) el.addEventListener('input', updateValuationAreaSum);
+  });
+  updateValuationAreaSum();
 }
 function handleValuationPhoto(e) {
   const file = e.target.files[0]; if (!file) return;
@@ -475,6 +497,49 @@ function parseAndFillValuation() {
     filled.push(`車位價 ${m[1]}萬`);
   }
 
+  // === 7.5) 總面積（坪）===
+  m = txt.match(/總面積\s*[:：]?\s*(\d+(?:\.\d+)?)\s*坪?/);
+  if (m) { set('total_area_ping', parseFloat(m[1])); filled.push(`總面積 ${m[1]}坪`); }
+
+  // === 8) 樓層：「2/5樓」「樓層 3樓」「3樓之2」 ===
+  m = txt.match(/(\d+)\s*[\/／]\s*(\d+)\s*樓/);
+  if (!m) m = txt.match(/(\d+)樓\s*[\/／]\s*(\d+)樓/);
+  if (m) { set('ref_floor', `${m[1]}/${m[2]}樓`); filled.push(`樓層 ${m[1]}/${m[2]}樓`); }
+  else {
+    const flLine = lines.find(l => /^(?:樓層\s*)?\d+\s*樓(?:之\d+)?$/.test(l));
+    if (flLine) {
+      const fm = flLine.match(/(\d+\s*樓(?:之\d+)?)/);
+      if (fm) { set('ref_floor', fm[1]); filled.push(`樓層 ${fm[1]}`); }
+    }
+  }
+
+  // === 9) 屋齡：「屋齡 28.7年」「28.7年屋齡」 ===
+  m = txt.match(/屋齡\s*[:：]?\s*(\d+(?:\.\d+)?)/);
+  if (!m) m = txt.match(/(\d+(?:\.\d+)?)\s*年\s*屋齡/);
+  if (m) { set('ref_age', parseFloat(m[1])); filled.push(`屋齡 ${m[1]}年`); }
+
+  // === 9.5) 格局(房廳衛)：「2/1/1」「2房1廳1衛」「1房」 ===
+  m = txt.match(/(\d)\s*[\/／]\s*(\d|--|—)\s*[\/／]\s*(\d|--|—)/);
+  if (m) {
+    const r = m[1], l = (m[2]==='--'||m[2]==='—')?'--':m[2], b = (m[3]==='--'||m[3]==='—')?'--':m[3];
+    set('ref_rooms', `${r}/${l}/${b}`);
+    filled.push(`格局 ${r}/${l}/${b}`);
+  } else {
+    m = txt.match(/(\d)\s*房\s*(\d)\s*廳\s*(\d)\s*衛/);
+    if (m) { set('ref_rooms', `${m[1]}/${m[2]}/${m[3]}`); filled.push(`格局 ${m[1]}/${m[2]}/${m[3]}`); }
+    else {
+      m = txt.match(/(\d)\s*房(?!\s*[\/／]\s*\d+\s*[廳衛坪])/);
+      if (m) { set('ref_rooms', `${m[1]}/--/--`); filled.push(`${m[1]}房`); }
+    }
+  }
+
+  // === 9.6) 車位個數：「無車位」「1個車位」「2 車位」 ===
+  if (/無車位/.test(txt)) { set('ref_parking', '無車位'); filled.push('無車位'); }
+  else {
+    const pm = txt.match(/(\d+)\s*個?\s*車位/);
+    if (pm) { set('ref_parking', `${pm[1]}個車位`); filled.push(`${pm[1]}個車位`); }
+  }
+
   // === 10) 物件型態 ===
   m = txt.match(/(華廈|電梯大樓|電梯華廈|公寓|透天厝|透天|大樓|別墅|套房|店面|辦公|廠房|農舍|住宅|住家)/);
   if (m) { set('ref_building_type', m[1]); filled.push(`型態 ${m[1]}`); }
@@ -510,9 +575,14 @@ function saveValuation(propId, vid) {
     aux_area_ping: parseFloat((f.querySelector('[name="aux_area_ping"]')||{}).value) || null,
     common_area_ping: parseFloat((f.querySelector('[name="common_area_ping"]')||{}).value) || null,
     parking_area_ping: parseFloat((f.querySelector('[name="parking_area_ping"]')||{}).value) || null,
+    total_area_ping: parseFloat((f.querySelector('[name="total_area_ping"]')||{}).value) || null,
     source_url: (f.querySelector('[name="source_url"]')||{}).value || null,
     ref_address: (f.querySelector('[name="ref_address"]')||{}).value || null,
     ref_building_type: (f.querySelector('[name="ref_building_type"]')||{}).value || null,
+    ref_floor: (f.querySelector('[name="ref_floor"]')||{}).value || null,
+    ref_age: parseFloat((f.querySelector('[name="ref_age"]')||{}).value) || null,
+    ref_rooms: (f.querySelector('[name="ref_rooms"]')||{}).value || null,
+    ref_parking: (f.querySelector('[name="ref_parking"]')||{}).value || null,
     notes: (f.querySelector('[name="notes"]')||{}).value || null,
     photo: photoVal
   };
@@ -562,6 +632,22 @@ function deleteValuation(vid) {
   } catch(e) {
     alert('刪除失敗：' + e.message);
   }
+}
+
+/* 評估表單面積加總（主+附+共+車） */
+function updateValuationAreaSum() {
+  const f = document.querySelector('#modal'); if (!f) return;
+  const g = name => parseFloat((f.querySelector(`[name="${name}"]`)||{}).value) || 0;
+  const sum = g('main_area_ping') + g('aux_area_ping') + g('common_area_ping') + g('parking_area_ping');
+  const el = document.getElementById('valuationAreaSum');
+  if (el) el.textContent = sum ? sum.toFixed(2).replace(/\.?0+$/,'') : '0';
+}
+function fillValuationTotal() {
+  const f = document.querySelector('#modal'); if (!f) return;
+  const g = name => parseFloat((f.querySelector(`[name="${name}"]`)||{}).value) || 0;
+  const sum = g('main_area_ping') + g('aux_area_ping') + g('common_area_ping') + g('parking_area_ping');
+  const inp = f.querySelector('[name="total_area_ping"]');
+  if (inp) inp.value = sum ? parseFloat(sum.toFixed(2)) : '';
 }
 
 /* 建議售價：編輯表單與儲存 */

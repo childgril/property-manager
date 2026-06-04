@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS property_valuations (
   aux_area_ping REAL,
   common_area_ping REAL,
   parking_area_ping REAL,
+  total_area_ping REAL,
   source TEXT,
   source_url TEXT,
   ref_address TEXT,
@@ -352,13 +353,29 @@ function labelToCode(group, label) {
 /* 觸發隱藏 file input 讓使用者選 CSV，讀到字串後呼叫 cb(text) */
 function pickCSVFile(cb) {
   const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = '.csv,text/csv';
+  inp.type = 'file'; inp.accept = '.csv,text/csv,application/vnd.ms-excel,.txt';
+  inp.style.position = 'fixed'; inp.style.left = '-9999px';
   inp.onchange = e => {
-    const f = e.target.files[0]; if (!f) return;
+    const f = e.target.files[0];
+    document.body.removeChild(inp);
+    if (!f) return;
     const reader = new FileReader();
-    reader.onload = ev => cb(ev.target.result);
+    reader.onload = ev => {
+      let text = ev.target.result;
+      // 若亂碼（內含太多替代字元），嘗試 Big5
+      if (text.indexOf('\uFFFD') > 5) {
+        const r2 = new FileReader();
+        r2.onload = ev2 => cb(ev2.target.result);
+        r2.readAsText(f, 'big5');
+      } else {
+        cb(text);
+      }
+    };
+    reader.onerror = () => alert('讀取檔案失敗：' + reader.error);
     reader.readAsText(f, 'utf-8');
   };
+  // 必須加到 DOM 才能在某些瀏覽器（特別是行動裝置）正確觸發
+  document.body.appendChild(inp);
   inp.click();
 }
 
@@ -634,7 +651,7 @@ function renderDashboard() {
   const txnOpen = query("SELECT COUNT(*) c FROM transactions WHERE transaction_status NOT IN ('completed','cancelled')")[0].c;
 
   let html = `<h2 class="page-title">總覽</h2>
-    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.04-f</span></div>
+    <div class="page-desc">不動產資產管理系統 · 資料儲存在你的本機 · <span style="color:var(--accent)">版本 2026.06.04-h</span></div>
     <div class="stats">
       <div class="stat statcard" style="--c:#2563eb"><div class="label">土地權狀</div><div class="value" style="color:#2563eb">${landTotal}</div><div class="sub">持有中 ${landHeld}</div></div>
       <div class="stat statcard" style="--c:#16a34a"><div class="label">建物權狀</div><div class="value" style="color:#16a34a">${bldTotal}</div><div class="sub">持有中 ${bldHeld}</div></div>
@@ -1031,11 +1048,13 @@ function importBuildings() {
    建物型態,屋齡,建物現況格局-房,建物現況格局-廳,建物現況格局-衛,有無管理組織,車位類別 等
    注意：CSV 第一行是「英文鍵」，第二行才是「中文標頭」（內政部格式如此） */
 function importActualPriceCSV() {
-  const filter = prompt('輸入地段／路名／鄉鎮關鍵字（只匯入名稱含此字串的筆數，避免一次塞入幾千筆）：\n\n例如：「國富」「花蓮市」「中正路」\n留空＝全部匯入（不建議，可能很大）','');
+  const filter = prompt('輸入地段／路名／鄉鎮關鍵字（只匯入名稱含此字串的筆數，避免一次塞入幾千筆）：\n\n例如：「國富」「花蓮市」「中正路」\n留空＝全部匯入（不建議，可能很大）\n\n按下「確定」後會跳出檔案選擇器','');
   if (filter === null) return;
-  pickCSVFile(text => {
-    const grid = parseCSV(text);
-    if (grid.length < 2) { toast('檔案是空的或格式錯誤', true); return; }
+  try {
+    pickCSVFile(text => {
+      try {
+        const grid = parseCSV(text);
+        if (grid.length < 2) { alert('檔案是空的或格式錯誤'); return; }
     // 內政部 CSV：第一行可能是英文 key 或中文。找出中文標頭那一行（含「鄉鎮市區」等字）
     let headerIdx = -1;
     for (let i = 0; i < Math.min(grid.length, 3); i++) {
@@ -1105,9 +1124,19 @@ function importActualPriceCSV() {
     autoSave();
     let msg = `匯入完成：${added} 筆`;
     if (filtered) msg += `（過濾掉 ${filtered} 筆不含「${filter}」的）`;
-    toast(msg);
+    if (added === 0) {
+      alert('沒有匯入任何資料。\n\n可能原因：\n1. CSV 標頭格式不符（應該是內政部下載的「F_lvr_land_A.csv」這種）\n2. 關鍵字「' + (filter||'') + '」沒有匹配到任何筆數\n\n建議：先留空關鍵字試試，或檢查 CSV 第一行是否為「鄉鎮市區,交易標的,土地位置建物門牌,...」');
+    } else {
+      alert(msg);
+    }
     renderValuationList();
-  });
+      } catch(e) {
+        alert('解析 CSV 失敗：' + e.message + '\n\n請確認檔案是內政部下載的 CSV（編碼為 UTF-8 或 Big5）。');
+      }
+    });
+  } catch(e) {
+    alert('開啟檔案選擇器失敗：' + e.message);
+  }
 }
 /* 清空所有實價登錄參考資料 */
 function clearActualPriceRecords() {
